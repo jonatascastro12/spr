@@ -106,3 +106,11 @@ export async function pushLease(
 ): Promise<void> {
   await runCmd(["git", "-C", worktreePath, "push", "--force-with-lease", remote, branch]);
 }
+
+export async function pushBranch(
+  worktreePath: string,
+  remote: string,
+  branch: string
+): Promise<void> {
+  await runCmd(["git", "-C", worktreePath, "push", "-u", remote, branch]);
+}

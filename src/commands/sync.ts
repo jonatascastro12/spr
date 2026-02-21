@@ -39,7 +39,7 @@ export async function runSync(opts: SyncOptions): Promise<void> {
 
     const shouldCreate = await askYesNo("Create missing PRs now? [y/N] ");
     if (shouldCreate) {
-      await createMissingPrs(plan.allBranches, missingPrs, parentByBranch, repoRoot);
+      await createMissingPrs(plan.allBranches, missingPrs, parentByBranch, repoRoot, graph);
     } else {
       throw new SprError("Sync stopped: missing PRs. Re-run sync and create PRs when prompted.");
     }
@@ -103,7 +103,8 @@ async function createMissingPrs(
   stackBranches: string[],
   missingPrs: string[],
   parentByBranch: Record<string, string>,
-  repoRoot: string
+  repoRoot: string,
+  graph: Map<string, { worktreePath: string }>
 ): Promise<void> {
   const missingSet = new Set(missingPrs);
   const fallbackBase = await git.defaultBranch(repoRoot);
@@ -113,6 +114,12 @@ async function createMissingPrs(
       continue;
     }
     const base = parentByBranch[branch] ?? fallbackBase;
+    const node = graph.get(branch);
+    if (!node) {
+      throw new SprError(`Cannot create PR: missing worktree for branch ${branch}`);
+    }
+    console.log(`Pushing ${branch} to origin`);
+    await git.pushBranch(node.worktreePath, "origin", branch);
     console.log(`Creating PR for ${branch} -> ${base}`);
     await gh.createPr(branch, base);
   }
