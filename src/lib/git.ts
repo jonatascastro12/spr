@@ -58,12 +58,44 @@ export async function listWorktrees(cwd = process.cwd()): Promise<Worktree[]> {
 }
 
 export async function assertClean(worktreePaths: string[]): Promise<void> {
-  for (const wtPath of worktreePaths) {
+  const dirty = await listDirtyWorktrees(worktreePaths);
+  if (dirty.length > 0) {
+    throw new DirtyWorktreeError(dirty[0]);
+  }
+}
+
+export async function listDirtyWorktrees(worktreePaths: string[]): Promise<string[]> {
+  const dirty: string[] = [];
+  for (const wtPath of [...new Set(worktreePaths)].sort()) {
     const status = await runCmd(["git", "-C", wtPath, "status", "--porcelain"]);
     if (status.trim().length > 0) {
-      throw new DirtyWorktreeError(wtPath);
+      dirty.push(wtPath);
     }
   }
+  return dirty;
+}
+
+export async function stashWorkingTree(worktreePath: string, message: string): Promise<void> {
+  await runCmd(["git", "-C", worktreePath, "stash", "push", "-u", "-m", message]);
+}
+
+export async function isAncestorCommit(cwd: string, ancestorCommit: string, ref: string): Promise<boolean> {
+  const mergeBase = await runCmd(["git", "-C", cwd, "merge-base", ancestorCommit, ref], {
+    allowFailure: true,
+  });
+  return mergeBase === ancestorCommit;
+}
+
+export async function branchHasCommitMessageFragment(
+  cwd: string,
+  ref: string,
+  fragment: string
+): Promise<boolean> {
+  const out = await runCmd(
+    ["git", "-C", cwd, "log", ref, "--fixed-strings", "--grep", fragment, "-n", "1", "--format=%H"],
+    { allowFailure: true }
+  );
+  return out.length > 0;
 }
 
 export async function createBranch(
@@ -89,6 +121,54 @@ export async function createBranch(
 
   await runCmd(["git", "-C", repoRootPath, "checkout", fromBranch]);
   await runCmd(["git", "-C", repoRootPath, "checkout", "-b", branch]);
+}
+
+export async function localBranchExists(cwd: string, branch: string): Promise<boolean> {
+  const out = await runCmd(
+    ["git", "-C", cwd, "show-ref", "--verify", `refs/heads/${branch}`],
+    { allowFailure: true }
+  );
+  return out.length > 0;
+}
+
+export async function remoteBranchExists(
+  cwd: string,
+  remote: string,
+  branch: string
+): Promise<boolean> {
+  const out = await runCmd(
+    ["git", "-C", cwd, "show-ref", "--verify", `refs/remotes/${remote}/${branch}`],
+    { allowFailure: true }
+  );
+  return out.length > 0;
+}
+
+export async function addWorktreeForExistingBranch(
+  repoRootPath: string,
+  branch: string,
+  worktreePath: string
+): Promise<void> {
+  await runCmd(["git", "-C", repoRootPath, "worktree", "add", worktreePath, branch]);
+}
+
+export async function addWorktreeForRemoteBranch(
+  repoRootPath: string,
+  branch: string,
+  remote: string,
+  worktreePath: string
+): Promise<void> {
+  await runCmd([
+    "git",
+    "-C",
+    repoRootPath,
+    "worktree",
+    "add",
+    "--track",
+    "-b",
+    branch,
+    worktreePath,
+    `${remote}/${branch}`,
+  ]);
 }
 
 export async function fetch(worktreePath: string, remote = "origin"): Promise<void> {

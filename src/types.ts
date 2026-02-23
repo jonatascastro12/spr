@@ -9,6 +9,19 @@ export type PrInfo = {
   url: string;
   headRefName: string;
   baseRefName: string;
+  title: string;
+  body: string;
+};
+
+export type PrStateInfo = {
+  number: number;
+  url: string;
+  headRefName: string;
+  baseRefName: string;
+  state: "OPEN" | "CLOSED" | "MERGED";
+  mergedAt: string | null;
+  closedAt: string | null;
+  headRefOid: string | null;
 };
 
 export type StackNode = {

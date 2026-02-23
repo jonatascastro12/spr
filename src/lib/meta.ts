@@ -31,3 +31,18 @@ export async function setParent(
   meta.parentByBranch[childBranch] = parentBranch;
   await saveMeta(commonGitDir, meta);
 }
+
+export async function mergeParents(
+  commonGitDir: string,
+  parents: Record<string, string>
+): Promise<void> {
+  if (Object.keys(parents).length === 0) {
+    return;
+  }
+  const meta = await loadMeta(commonGitDir);
+  meta.parentByBranch = {
+    ...meta.parentByBranch,
+    ...parents,
+  };
+  await saveMeta(commonGitDir, meta);
+}

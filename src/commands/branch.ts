@@ -1,5 +1,6 @@
 import * as git from "../lib/git";
 import * as metaStore from "../lib/meta";
+import * as ui from "../lib/ui";
 
 export async function runBranch(opts: {
   name: string;
@@ -13,9 +14,12 @@ export async function runBranch(opts: {
   await git.createBranch(repoRoot, opts.name, fromBranch, opts.worktreePath);
   await metaStore.setParent(commonDir, opts.name, fromBranch);
 
-  console.log(
-    opts.worktreePath
-      ? `Created branch ${opts.name} from ${fromBranch} in worktree ${opts.worktreePath}`
-      : `Created branch ${opts.name} from ${fromBranch}`
-  );
+  if (opts.worktreePath) {
+    ui.printSuccess(
+      `Created branch ${ui.styleBranch(opts.name)} from ${ui.styleBranch(fromBranch)} in worktree ${ui.stylePath(opts.worktreePath)}`
+    );
+    return;
+  }
+
+  ui.printSuccess(`Created branch ${ui.styleBranch(opts.name)} from ${ui.styleBranch(fromBranch)}`);
 }

@@ -3,25 +3,25 @@ import * as stateStore from "../lib/state";
 import * as ui from "../lib/ui";
 
 export async function runStatus(opts: { fromBranch?: string } = {}): Promise<void> {
-  const { commonDir, fromBranch, plan } = await discoverPlan({ fromBranch: opts.fromBranch });
+  const { commonDir, fromBranch, plan, graph } = await discoverPlan({ fromBranch: opts.fromBranch });
 
-  console.log(`From branch: ${fromBranch}`);
-  ui.printPlan(plan);
+  ui.printInfo(`${ui.styleLabel("From branch:")} ${ui.styleBranch(fromBranch, "current")}`);
+  ui.printStatusTree(graph, plan, { fromBranch });
 
   const state = await stateStore.loadState(commonDir);
   if (!state) {
-    console.log("Checkpoint: none");
+    ui.printInfo(`${ui.styleLabel("Checkpoint:")} none`);
     return;
   }
 
-  console.log("Checkpoint:");
-  console.log(`- startedAt: ${state.startedAt}`);
-  console.log(`- rootBranch: ${state.rootBranch}`);
-  console.log(`- completed: ${state.completed.length}/${state.executionOrder.length}`);
+  ui.printInfo(ui.styleLabel("Checkpoint:"));
+  ui.printInfo(`- startedAt: ${state.startedAt}`);
+  ui.printInfo(`- rootBranch: ${ui.styleBranch(state.rootBranch, "root")}`);
+  ui.printInfo(`- completed: ${state.completed.length}/${state.executionOrder.length}`);
   if (state.failedAt) {
-    console.log(`- failedAt: ${state.failedAt}`);
+    ui.printWarning(`- failedAt: ${state.failedAt}`);
   }
   if (state.lastError) {
-    console.log(`- lastError: ${state.lastError}`);
+    ui.printWarning(`- lastError: ${state.lastError}`);
   }
 }

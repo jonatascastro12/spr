@@ -12,14 +12,25 @@ export type DiscoveredPlan = {
   parentByBranch: Record<string, string>;
 };
 
-export async function discoverPlan(opts: { fromBranch?: string } = {}): Promise<DiscoveredPlan> {
+export async function discoverPlan(
+  opts: {
+    fromBranch?: string;
+    parentByBranchOverride?: Record<string, string>;
+    parentByBranchReplace?: Record<string, string>;
+  } = {}
+): Promise<DiscoveredPlan> {
   const repoRoot = await git.repoRoot();
   const commonDir = await git.gitCommonDir(repoRoot);
   const fromBranch = opts.fromBranch ?? (await git.currentBranch());
 
   const worktrees = await git.listWorktrees(repoRoot);
   const meta = await metaStore.loadMeta(commonDir);
-  const graph = stack.buildGraph(worktrees, meta.parentByBranch);
+  const parentByBranch =
+    opts.parentByBranchReplace ?? {
+      ...meta.parentByBranch,
+      ...(opts.parentByBranchOverride ?? {}),
+    };
+  const graph = stack.buildGraph(worktrees, parentByBranch);
   const component = stack.connectedComponent(graph, fromBranch);
   const plan = stack.makePlan(graph, component);
 
@@ -29,6 +40,6 @@ export async function discoverPlan(opts: { fromBranch?: string } = {}): Promise<
     fromBranch,
     graph,
     plan,
-    parentByBranch: meta.parentByBranch,
+    parentByBranch,
   };
 }

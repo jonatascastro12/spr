@@ -35,8 +35,24 @@ This file documents architectural decisions and operating rules for contributors
 - `spr status [--from <branch>]`
   - Prints detected stack plan and checkpoint summary.
 
+- `spr jump [branch] [--from <branch>] [--print | --cd]`
+  - Interactively selects a branch from the detected stack with arrow keys and resolves its worktree path.
+  - Optional positional `branch` skips interactive prompt.
+  - `--print` outputs only the selected worktree path.
+  - `--cd` outputs a shell-safe `cd -- <path>` command for `eval`.
+
+- `spr bootstrap [--from <branch>] [--worktree-root <path>] [--dry-run]`
+  - Discovers an already-open PR stack from GitHub, creates missing local worktrees, and persists parent linkage into `spr-meta.json`.
+
+- `spr link [branch] (--parent <parent> | --child <child>)`
+  - Manually writes one `child -> parent` linkage in `spr-meta.json` (creates file automatically if missing).
+  - If `branch` is omitted, uses current branch.
+
+- `spr skill [--path <skills-dir>] [--codex-path <skills-dir>] [--claude-path <skills-dir>]`
+  - Installs the bundled `spr-usage` skill for Codex (`$CODEX_HOME/skills` or `~/.codex/skills`) and Claude (`~/.claude/skills`).
+
 - `spr sync [--dry-run] [--from <branch>]`
-  - Detects stack, optionally creates missing PRs, rebases descendants in order, pushes updates.
+  - Auto-seeds missing parent links from open PR base refs, detects closed-but-merged ancestor PRs (merge queue), rewrites parent links to bypass merged branches, then optionally creates missing PRs, rebases descendants in order, and pushes updates.
 
 - `spr resume`
   - Continues failed sync from `spr-state.json`.
@@ -49,7 +65,7 @@ Stored under git common dir (`git rev-parse --git-common-dir`):
 If changing these schemas, include migration or backward-compat read logic.
 
 ## Safety Rules
-- Never run mutating operations when any involved worktree is dirty.
+- Never run mutating operations when any involved worktree is dirty; prompt user to stash first and abort if declined.
 - Keep `--dry-run` side-effect free.
 - Stop on first rebase conflict; print direct recovery path.
 - Never replace `--force-with-lease` with `--force`.
@@ -78,6 +94,16 @@ If changing these schemas, include migration or backward-compat read logic.
 - then rebases/pushes descendants
 4. Inject a conflict and verify `spr-state.json` supports `spr resume`.
 5. Validate behavior with no checkpoint (`resume` should fail clearly).
+6. Validate dirty-worktree flow:
+- `spr sync`/`spr resume` prompts to stash when uncommitted changes are present
+- on `y`, stash is created and command proceeds
+- on `n`, command aborts with a clear message
+7. Validate merge-queue closed PR handling:
+- if a parent PR is `CLOSED` but merged into base branch, `spr sync` rewrites child base to the merged PR base and removes merged branch from stack metadata
+8. Validate jump navigation:
+- `spr jump` shows arrow-key interactive selection and returns selected worktree path
+- `spr jump <branch> --print` prints only worktree path for that branch
+- `spr jump --cd` prints a shell-safe `cd` command
 
 ## Coding Rules
 - Keep modules small and single-purpose (`git`, `gh`, `plan`, `stack`, `state`, `meta`, `commands/*`).

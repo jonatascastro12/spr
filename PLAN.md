@@ -9,7 +9,7 @@ Primary outcome:
 ## Design Principles
 - Auto-detect, do not require `--all-worktrees`.
 - Depend only on `git` and `gh` CLIs.
-- Be safe by default (`--force-with-lease`, dirty-tree checks, stop on conflict).
+- Be safe by default (`--force-with-lease`, dirty-tree stash prompt, stop on conflict).
 - Keep state resumable and inspectable.
 - Prefer deterministic behavior over magic.
 
@@ -32,6 +32,8 @@ Primary outcome:
 ### Commands
 - `spr sync`
   - Auto-detect all local worktrees.
+  - Auto-seed missing `spr-meta.json` parent links from open PR base refs before planning.
+  - Detect ancestor branches whose PRs are closed-but-merged (including merge-queue close behavior) and collapse them out of the stack.
   - Discover stack connected to current branch.
   - Prompt to create missing PRs in stack order.
   - Rebase descendants in topological order.
@@ -49,6 +51,26 @@ Primary outcome:
 
 - `spr status`
   - Show detected stack plan and current checkpoint state.
+
+- `spr jump [branch] [--from <branch>] [--print | --cd]`
+  - Interactively select a branch from the detected stack with arrow keys and resolve its worktree path.
+  - Optional positional `branch` jumps directly without interactive selection.
+  - `--print` returns only the selected worktree path for scripts.
+  - `--cd` returns a shell-safe `cd -- <path>` command for `eval`.
+
+- `spr bootstrap [--from <branch>] [--worktree-root <path>] [--dry-run]`
+  - Discover an already-open stacked PR chain from GitHub starting at `--from` (or current branch).
+  - Create missing local worktrees for stack branches from local or `origin/<branch>`.
+  - Persist discovered `child -> parent` metadata in `spr-meta.json`.
+
+- `spr link [branch] (--parent <parent> | --child <child>)`
+  - Create or update one parent linkage in `spr-meta.json`.
+  - If `branch` is omitted, uses current branch.
+  - Works even before PRs are opened (manual metadata seeding).
+
+- `spr skill [--path <skills-dir>] [--codex-path <skills-dir>] [--claude-path <skills-dir>]`
+  - Install the bundled `spr-usage` skill for both Codex and Claude.
+  - Defaults to `$CODEX_HOME/skills` (or `~/.codex/skills`) and `~/.claude/skills`.
 
 - `spr branch <name> [--from <branch>] [--worktree <path>]`
   - Create a branch from a parent branch.
@@ -68,15 +90,18 @@ Primary outcome:
 - Missing-PR creation flow:
   1. `git -C <wt> push -u origin <branch>`
   2. `gh pr create --head <branch> --base <parentOrDefaultBase> --fill`
+  3. `gh api --method PATCH repos/<owner>/<repo>/pulls/<number> -f body=<updatedBodyWithStackSection>`
 - Each descendant executes:
   1. `git -C <wt> fetch origin`
   2. `git -C <wt> rebase <parentBranch>`
   3. `git -C <wt> push --force-with-lease origin <branch>`
+  4. Refresh the pushed branch PR body stack section.
 
 ## Safety and Failure Handling
-- Fail fast if any involved worktree is dirty.
+- If any involved worktree in the connected stack component is dirty, prompt to stash changes before mutating operations; abort if declined.
 - Stop at first conflict.
 - Persist checkpoint after each successful branch.
+- For closed PRs, only treat them as merged when merge evidence exists on base branch (head commit ancestry or a `(#PR_NUMBER)` commit marker).
 - On failure, provide direct recovery hint:
   - `git -C <worktree> rebase --continue`
   - then `spr resume`.
@@ -138,10 +163,18 @@ type SprMeta = {
   - Orchestration of planning, execution, and resume.
 - `src/commands/status.ts`
   - Displays stack plan and checkpoint summary.
+- `src/commands/jump.ts`
+  - Interactive stack worktree navigation and shell handoff.
+- `src/commands/bootstrap.ts`
+  - Discovers existing PR stacks and initializes worktrees + metadata.
+- `src/commands/link.ts`
+  - Manually creates/updates a single parent-child metadata link.
+- `src/commands/skill.ts`
+  - Installs the bundled `spr-usage` Codex skill.
 - `src/commands/branch.ts`
   - Creates stacked branches and stores parent metadata.
 - `src/lib/git.ts`
-  - Git wrappers (`worktree list`, `branch/worktree create`, `rebase`, `push`, cleanliness checks).
+  - Git wrappers (`worktree list`, `branch/worktree create`, `rebase`, `push`, cleanliness + stash helpers).
 - `src/lib/gh.ts`
   - GitHub PR lookup/create wrappers.
 - `src/lib/plan.ts`
@@ -166,7 +199,7 @@ type SprMeta = {
 1. Operational hardening
 - Better conflict diagnostics.
 - Retry/failure classification.
-- Optional `--autostash` mode.
+- Optional non-interactive autostash flag.
 
 2. Usability
 - Better output formatting and timing info.
