@@ -5,14 +5,16 @@ import { runLink } from "./commands/link";
 import { runJump } from "./commands/jump";
 import { runSkill } from "./commands/skill";
 import { runStatus } from "./commands/status";
+import { runRestack } from "./commands/restack";
 import { runSync } from "./commands/sync";
 import { SprError } from "./lib/errors";
 import * as ui from "./lib/ui";
 
 type ParsedArgs =
   | {
-      command: "sync" | "resume" | "status";
+      command: "sync" | "resume" | "status" | "restack";
       dryRun: boolean;
+      yes: boolean;
       fromBranch?: string;
       help?: boolean;
     }
@@ -56,7 +58,7 @@ type ParsedArgs =
 function parseArgs(argv: string[]): ParsedArgs {
   const [firstRaw, ...restRaw] = argv;
   if (!firstRaw || firstRaw === "-h" || firstRaw === "--help") {
-    return { command: "sync", dryRun: false, help: true };
+    return { command: "sync", dryRun: false, yes: false, help: true };
   }
 
   if (firstRaw === "branch") {
@@ -230,9 +232,9 @@ function parseArgs(argv: string[]): ParsedArgs {
     return { command: "jump", fromBranch, branch, printOnly, cdCommand };
   }
 
-  let command: "sync" | "resume" | "status" = "sync";
+  let command: "sync" | "resume" | "status" | "restack" = "sync";
   let rest = restRaw;
-  if (firstRaw === "sync" || firstRaw === "resume" || firstRaw === "status") {
+  if (firstRaw === "sync" || firstRaw === "resume" || firstRaw === "status" || firstRaw === "restack") {
     command = firstRaw;
   } else if (firstRaw.startsWith("-")) {
     rest = [firstRaw, ...restRaw];
@@ -241,6 +243,7 @@ function parseArgs(argv: string[]): ParsedArgs {
   }
 
   let dryRun = false;
+  let yes = false;
   let fromBranch: string | undefined;
 
   for (let i = 0; i < rest.length; i += 1) {
@@ -249,28 +252,33 @@ function parseArgs(argv: string[]): ParsedArgs {
       dryRun = true;
       continue;
     }
+    if (arg === "--yes" || arg === "-y") {
+      yes = true;
+      continue;
+    }
     if (arg === "--from") {
       fromBranch = rest[i + 1];
       i += 1;
       continue;
     }
     if (arg === "-h" || arg === "--help") {
-      return { command, dryRun, fromBranch, help: true };
+      return { command, dryRun, yes, fromBranch, help: true };
     }
     if (arg.startsWith("-")) {
       throw new SprError(`Unknown option: ${arg}`);
     }
   }
 
-  return { command, dryRun, fromBranch };
+  return { command, dryRun, yes, fromBranch };
 }
 
 function printHelp(): void {
   ui.printInfo(`${ui.styleBold("spr")} - stacked PR sync for git worktrees
 
 Usage:
-  spr sync [--dry-run] [--from <branch>]
-  spr resume
+  spr sync [--dry-run] [--from <branch>] [--yes]
+  spr restack [--dry-run] [--from <branch>] [--yes]
+  spr resume [--yes]
   spr status [--from <branch>]
   spr jump [branch] [--from <branch>] [--print | --cd]
   spr bootstrap [--from <branch>] [--worktree-root <path>] [--dry-run]
@@ -280,6 +288,7 @@ Usage:
 
 Commands:
   sync      Auto-detect related worktrees in your stack, create missing PRs if needed, then rebase descendants in order
+  restack   Rebase and push only descendant branches below current (or --from) branch
   resume    Continue a previously failed sync
   status    Show detected stack plan and current checkpoint state
   jump      Interactively select a stack branch and print the target path
@@ -289,6 +298,7 @@ Commands:
   branch    Create a branch from parent and persist stack parent metadata
 
 Options:
+  -y, --yes Auto-confirm all prompts (useful for non-interactive/agent use)
   --dry-run Show plan only, do not mutate branches
   --from    Override start branch for stack component detection
   --print   For 'jump': print selected worktree path only
@@ -310,12 +320,17 @@ async function main(): Promise<void> {
   }
 
   if (args.command === "resume") {
-    await runSync({ resume: true });
+    await runSync({ resume: true, yes: args.yes });
     return;
   }
 
   if (args.command === "status") {
     await runStatus({ fromBranch: args.fromBranch });
+    return;
+  }
+
+  if (args.command === "restack") {
+    await runRestack({ dryRun: args.dryRun, fromBranch: args.fromBranch, yes: args.yes });
     return;
   }
 
@@ -357,7 +372,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  await runSync({ dryRun: args.dryRun, fromBranch: args.fromBranch });
+  await runSync({ dryRun: args.dryRun, fromBranch: args.fromBranch, yes: args.yes });
 }
 
 main().catch((err) => {
