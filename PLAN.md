@@ -1,7 +1,7 @@
-# SPR Plan
+# GW Plan
 
 ## Goal
-Build a Bun-based CLI (`spr`) to manage stacked pull requests across Git worktrees, with Graphite-like ergonomics but worktree-native behavior.
+Build a Bun-based CLI (`gw`) to manage stacked pull requests across Git worktrees, with Graphite-like ergonomics but worktree-native behavior.
 
 Primary outcome:
 - If a base PR branch changes, one command should rebase and push the rest of the stack in order, even when each branch lives in a different worktree.
@@ -30,10 +30,10 @@ Primary outcome:
 
 ## Core UX
 ### Commands
-- `spr sync`
+- `gw sync`
   - Auto-detect all local worktrees.
   - Fast-forward the stack root branch from `origin/<root>` before rebasing descendants.
-  - Auto-seed missing `spr-meta.json` parent links from open PR base refs before planning.
+  - Auto-seed missing `gw-meta.json` parent links from open PR base refs before planning.
   - Detect ancestor branches whose PRs are closed-but-merged (including merge-queue close behavior) and collapse them out of the stack.
   - Update open PR base refs to match the resolved stack parent graph.
   - Discover stack connected to current branch.
@@ -41,59 +41,59 @@ Primary outcome:
   - Rebase descendants in topological order.
   - Push each updated branch with `--force-with-lease`.
 
-- `spr sync --dry-run`
+- `gw sync --dry-run`
   - Compute and print plan only.
   - No mutation.
 
-- `spr sync --from <branch>`
+- `gw sync --from <branch>`
   - Optional branch override when not invoked from stack worktree.
 
-- `spr restack [--dry-run] [--from <branch>]`
+- `gw restack [--dry-run] [--from <branch>]`
   - Rebase and push only descendants of current branch (or `--from`) in stack order.
   - Skip PR creation/base-update logic; this is a pure stack rebase operation.
 
-- `spr resume`
+- `gw resume`
   - Continue from last failed step using saved state.
 
-- `spr status`
+- `gw status`
   - Show detected stack plan and current checkpoint state.
 
-- `spr jump [branch] [--from <branch>] [--print | --cd]`
+- `gw jump [branch] [--from <branch>] [--print | --cd]`
   - Interactively select a branch from the detected stack with arrow keys and resolve its worktree path.
   - Optional positional `branch` jumps directly without interactive selection.
   - `--print` returns only the selected worktree path for scripts.
   - `--cd` returns a shell-safe `cd -- <path>` command for `eval`.
 
-- `spr bootstrap [--from <branch>] [--worktree-root <path>] [--dry-run]`
+- `gw bootstrap [--from <branch>] [--worktree-root <path>] [--dry-run]`
   - Discover an already-open stacked PR chain from GitHub starting at `--from` (or current branch).
   - Create missing local worktrees for stack branches from local or `origin/<branch>`.
-  - Persist discovered `child -> parent` metadata in `spr-meta.json`.
+  - Persist discovered `child -> parent` metadata in `gw-meta.json`.
 
-- `spr link [branch] (--parent <parent> | --child <child>)`
-  - Create or update one parent linkage in `spr-meta.json`.
+- `gw link [branch] (--parent <parent> | --child <child>)`
+  - Create or update one parent linkage in `gw-meta.json`.
   - If `branch` is omitted, uses current branch.
   - Works even before PRs are opened (manual metadata seeding).
 
-- `spr skill [--path <skills-dir>] [--codex-path <skills-dir>] [--claude-path <skills-dir>]`
-  - Install the bundled `spr-usage` skill for both Codex and Claude.
+- `gw skill [--path <skills-dir>] [--codex-path <skills-dir>] [--claude-path <skills-dir>]`
+  - Install the bundled `gw-usage` skill for both Codex and Claude.
   - Defaults to `$CODEX_HOME/skills` (or `~/.codex/skills`) and `~/.claude/skills`.
 
-- `spr branch <name> [--from <branch>] [--worktree <path>]`
+- `gw branch <name> [--from <branch>] [--worktree <path>]`
   - Create a branch from a parent branch.
   - Optionally create the branch in a dedicated worktree.
   - Persist parent linkage for stack planning.
 
 ## Auto-Detection Model
 1. Enumerate worktrees using `git worktree list --porcelain`.
-2. Load parent metadata from `spr-meta.json` in git common dir.
+2. Load parent metadata from `gw-meta.json` in git common dir.
 3. Build local graph from worktree branches + `parentByBranch`.
 4. Find connected component containing current (or `--from`) branch.
 5. Compute root and topological order.
 
 ## Execution Semantics
-- Root branch is not rebased by `spr sync`, but it is fast-forwarded from `origin/<root>` before descendant rebases.
-- If `--from` is a merged/isolated branch, `spr sync` may pivot planning to a local downstream open-PR branch so stack updates still apply.
-- If stack branches are missing PRs, `spr sync` prompts to create them and still proceeds when declined.
+- Root branch is not rebased by `gw sync`, but it is fast-forwarded from `origin/<root>` before descendant rebases.
+- If `--from` is a merged/isolated branch, `gw sync` may pivot planning to a local downstream open-PR branch so stack updates still apply.
+- If stack branches are missing PRs, `gw sync` prompts to create them and still proceeds when declined.
 - Missing-PR creation flow:
   1. `git -C <wt> push -u origin <branch>`
   2. `gh pr create --head <branch> --base <parentOrDefaultBase> --fill`
@@ -112,14 +112,14 @@ Primary outcome:
 - For closed PRs, only treat them as merged when merge evidence exists on base branch (head commit ancestry or a `(#PR_NUMBER)` commit marker).
 - On failure, provide direct recovery hint:
   - `git -C <worktree> rebase --continue`
-  - then `spr resume`.
+  - then `gw resume`.
 
 ## Persistent Files
 Stored under git common dir (`git rev-parse --git-common-dir`):
-- `spr-state.json`
+- `gw-state.json`
   - In-progress sync checkpoint for resume.
-- `spr-meta.json`
-  - Persisted stack parent linkage (`parentByBranch`), written by `spr branch`.
+- `gw-meta.json`
+  - Persisted stack parent linkage (`parentByBranch`), written by `gw branch`.
 
 (Initial design keeps only one active checkpoint file.)
 
@@ -158,7 +158,7 @@ type SyncState = {
   dryRun: boolean;
 };
 
-type SprMeta = {
+type GwMeta = {
   version: 1;
   parentByBranch: Record<string, string>;
 };
@@ -178,7 +178,7 @@ type SprMeta = {
 - `src/commands/link.ts`
   - Manually creates/updates a single parent-child metadata link.
 - `src/commands/skill.ts`
-  - Installs the bundled `spr-usage` Codex skill.
+  - Installs the bundled `gw-usage` Codex skill.
 - `src/commands/branch.ts`
   - Creates stacked branches and stores parent metadata.
 - `src/lib/git.ts`
@@ -188,7 +188,7 @@ type SprMeta = {
 - `src/lib/plan.ts`
   - Shared stack discovery logic.
 - `src/lib/meta.ts`
-  - `spr-meta.json` read/write helpers.
+  - `gw-meta.json` read/write helpers.
 - `src/lib/stack.ts`
   - Graph build, connected component, topo planning.
 - `src/lib/state.ts`
@@ -220,7 +220,7 @@ type SprMeta = {
 ## Open Questions
 - Should we support partial sync (`--to` / `--only`) for large stacks?
 - Should checkpoints retain history (multiple runs) instead of single state file?
-- Should `spr branch` auto-push the branch immediately when created?
+- Should `gw branch` auto-push the branch immediately when created?
 
 ## Non-Goals for now
 - Replacing full Graphite feature set.

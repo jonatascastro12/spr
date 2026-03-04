@@ -1,6 +1,6 @@
 import { emitKeypressEvents } from "node:readline";
 import { discoverPlan } from "../lib/plan";
-import { SprError } from "../lib/errors";
+import { GwError } from "../lib/errors";
 import * as ui from "../lib/ui";
 
 type JumpOptions = {
@@ -23,7 +23,7 @@ export async function runJump(opts: JumpOptions = {}): Promise<void> {
   const stackWorktrees: StackWorktree[] = plan.allBranches.map((branch) => {
     const node = graph.get(branch);
     if (!node) {
-      throw new SprError(`Branch ${branch} is not available in current local worktrees.`);
+      throw new GwError(`Branch ${branch} is not available in current local worktrees.`);
     }
 
     const tags: string[] = [];
@@ -64,7 +64,7 @@ export async function runJump(opts: JumpOptions = {}): Promise<void> {
 
   ui.printSuccess(`Selected ${ui.stylePath(selected.path)}`);
   ui.printInfo(ui.styleMuted(`Run: cd -- ${shellQuote(selected.path)}`));
-  ui.printInfo(ui.styleMuted("For direct jump in current shell: eval \"$(spr jump --cd)\""));
+  ui.printInfo(ui.styleMuted("For direct jump in current shell: eval \"$(gw jump --cd)\""));
 }
 
 function selectByBranch(entries: StackWorktree[], branch: string): StackWorktree {
@@ -73,7 +73,7 @@ function selectByBranch(entries: StackWorktree[], branch: string): StackWorktree
     return selected;
   }
 
-  throw new SprError(
+  throw new GwError(
     `Branch '${branch}' is not in the detected stack. Available: ${entries
       .map((entry) => entry.branch)
       .join(", ")}`
@@ -86,10 +86,10 @@ function shellQuote(value: string): string {
 
 async function selectInteractively(entries: StackWorktree[]): Promise<StackWorktree> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    throw new SprError("Interactive jump requires a TTY. Use: spr jump <branch> --print");
+    throw new GwError("Interactive jump requires a TTY. Use: gw jump <branch> --print");
   }
   if (entries.length === 0) {
-    throw new SprError("No branches found in the detected stack.");
+    throw new GwError("No branches found in the detected stack.");
   }
 
   const stdin = process.stdin;
@@ -173,7 +173,7 @@ async function selectInteractively(entries: StackWorktree[]): Promise<StackWorkt
       }
 
       if (key.name === "escape" || key.name === "q" || (key.ctrl && key.name === "c")) {
-        done(new SprError("Jump cancelled."));
+        done(new GwError("Jump cancelled."));
       }
     }
 

@@ -1,4 +1,4 @@
-import { DirtyWorktreeError, SprError } from "./errors";
+import { DirtyWorktreeError, GwError } from "./errors";
 import { runCmd } from "./shell";
 import type { Worktree } from "../types";
 
@@ -79,7 +79,7 @@ export async function stashWorkingTree(worktreePath: string, message: string): P
   await runCmd(["git", "-C", worktreePath, "stash", "push", "-u", "-m", message]);
   const topRef = await runCmd(["git", "-C", worktreePath, "stash", "list", "-n", "1", "--format=%gd"]);
   if (!topRef) {
-    throw new SprError(`Failed to identify created stash in ${worktreePath}`);
+    throw new GwError(`Failed to identify created stash in ${worktreePath}`);
   }
   return topRef;
 }
@@ -210,4 +210,22 @@ export async function pushBranch(
   branch: string
 ): Promise<void> {
   await runCmd(["git", "-C", worktreePath, "push", "-u", remote, branch]);
+}
+
+export async function repoIdentifier(cwd = process.cwd()): Promise<string> {
+  const url = await runCmd(["git", "-C", cwd, "remote", "get-url", "origin"]);
+  // SSH:   git@github.com:owner/repo.git
+  // HTTPS: https://github.com/owner/repo.git
+  const sshMatch = url.match(/[:\/]([^/]+)\/([^/]+?)(?:\.git)?$/);
+  if (!sshMatch) {
+    throw new GwError(`Cannot parse owner/repo from origin URL: ${url}`);
+  }
+  return `${sshMatch[1]}/${sshMatch[2]}`;
+}
+
+export function sanitizeBranchForPath(branch: string): string {
+  return branch
+    .replaceAll("/", "__")
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/-+/g, "-");
 }

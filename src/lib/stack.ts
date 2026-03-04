@@ -1,5 +1,5 @@
 import type { StackNode, SyncPlan, Worktree } from "../types";
-import { SprError } from "./errors";
+import { GwError } from "./errors";
 
 export function buildGraph(
   worktrees: Worktree[],
@@ -33,7 +33,7 @@ export function buildGraph(
 
 export function connectedComponent(graph: Map<string, StackNode>, fromBranch: string): Set<string> {
   if (!graph.has(fromBranch)) {
-    throw new SprError(
+    throw new GwError(
       `Current branch '${fromBranch}' is not in local worktree graph. Ensure it has a local worktree.`
     );
   }
@@ -72,7 +72,7 @@ export function makePlan(graph: Map<string, StackNode>, component: Set<string>):
   });
 
   if (roots.length !== 1) {
-    throw new SprError(`Expected exactly 1 stack root, found ${roots.length}: ${roots.join(", ")}`);
+    throw new GwError(`Expected exactly 1 stack root, found ${roots.length}: ${roots.join(", ")}`);
   }
 
   const root = roots[0];
@@ -109,7 +109,7 @@ export function makePlan(graph: Map<string, StackNode>, component: Set<string>):
   }
 
   if (topo.length !== compNodes.length) {
-    throw new SprError("Cycle detected in stack graph; cannot compute rebase order.");
+    throw new GwError("Cycle detected in stack graph; cannot compute rebase order.");
   }
 
   return {

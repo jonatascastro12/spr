@@ -6,7 +6,7 @@ import {
   commitFile,
   git,
   runCmd,
-  runSpr,
+  runGw,
   setupBaseRepo,
   writeMeta,
 } from "./helpers/harness";
@@ -20,7 +20,7 @@ type StackCtx = {
 };
 
 async function setupRestackStack(): Promise<StackCtx> {
-  const { sandboxDir, repoDir } = await setupBaseRepo("spr-e2e-restack");
+  const { sandboxDir, repoDir } = await setupBaseRepo("gw-e2e-restack");
   const wtB = join(sandboxDir, "wt-b");
   const wtC = join(sandboxDir, "wt-c");
   const wtD = join(sandboxDir, "wt-d");
@@ -62,13 +62,13 @@ async function setupRestackStack(): Promise<StackCtx> {
   return { sandboxDir, repoDir, wtB, wtC, wtD };
 }
 
-describe("spr e2e: restack", () => {
+describe("gw e2e: restack", () => {
   test("restack from feature/b rebases and pushes only descendants", async () => {
     const stack = await setupRestackStack();
     await commitFile(stack.wtB, "b.txt", "b1\nb2\n", "b2");
     const b2Sha = await git(stack.wtB, ["rev-parse", "HEAD"]);
 
-    const out = await runSpr({
+    const out = await runGw({
       cwd: stack.wtB,
       args: ["restack"],
     });
@@ -96,7 +96,7 @@ describe("spr e2e: restack", () => {
     const beforeC = await git(stack.wtC, ["rev-parse", "HEAD"]);
     const beforeD = await git(stack.wtD, ["rev-parse", "HEAD"]);
 
-    const out = await runSpr({
+    const out = await runGw({
       cwd: stack.wtB,
       args: ["restack", "--dry-run"],
     });
@@ -111,7 +111,7 @@ describe("spr e2e: restack", () => {
 
   test("restack on leaf branch is a no-op", async () => {
     const stack = await setupRestackStack();
-    const out = await runSpr({
+    const out = await runGw({
       cwd: stack.wtD,
       args: ["restack", "--from", "feature/d"],
     });
@@ -124,7 +124,7 @@ describe("spr e2e: restack", () => {
     const stack = await setupRestackStack();
     await writeFile(join(stack.wtC, "dirty.txt"), "dirty\n", "utf8");
 
-    const out = await runSpr({
+    const out = await runGw({
       cwd: stack.wtB,
       args: ["restack", "--from", "feature/b"],
       stdin: "n\n",

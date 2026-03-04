@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="jonatascastro12/spr"
-INSTALL_DIR="${SPR_INSTALL_DIR:-/usr/local/bin}"
-BINARY="spr"
+REPO="jonatascastro12/gw"
+INSTALL_DIR="${GW_INSTALL_DIR:-/usr/local/bin}"
+BINARY="gw"
 
 get_arch() {
   local arch
@@ -30,7 +30,7 @@ main() {
 
   os="$(get_os)"
   arch="$(get_arch)"
-  target="spr-${os}-${arch}"
+  target="gw-${os}-${arch}"
 
   echo "Detected platform: ${os}-${arch}"
 
@@ -59,9 +59,9 @@ main() {
     sudo mv "$tmp" "${INSTALL_DIR}/${BINARY}"
   fi
 
-  echo "Installed spr ${tag} to ${INSTALL_DIR}/${BINARY}"
+  echo "Installed gw ${tag} to ${INSTALL_DIR}/${BINARY}"
   echo ""
-  echo "Run 'spr --help' to get started."
+  echo "Run 'gw --help' to get started."
 }
 
 main

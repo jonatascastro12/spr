@@ -3,7 +3,7 @@ import { stdin as input, stdout as output } from "node:process";
 import * as git from "../lib/git";
 import { discoverPlan } from "../lib/plan";
 import * as ui from "../lib/ui";
-import { ConflictError, SprError } from "../lib/errors";
+import { ConflictError, GwError } from "../lib/errors";
 
 export type RestackOptions = {
   dryRun?: boolean;
@@ -48,7 +48,7 @@ export async function runRestack(opts: RestackOptions): Promise<void> {
   for (const branch of executionOrder) {
     const node = graph.get(branch);
     if (!node || !node.parent) {
-      throw new SprError(`Cannot restack: missing parent/worktree for ${branch}`);
+      throw new GwError(`Cannot restack: missing parent/worktree for ${branch}`);
     }
 
     try {
@@ -121,12 +121,12 @@ async function ensureCleanOrStash(worktreePaths: string[], autoYes = false): Pro
 
   const shouldStash = await askYesNo("Stash changes in these worktrees and continue restack? [y/N] ", autoYes);
   if (!shouldStash) {
-    throw new SprError(
-      "Restack stopped: dirty worktrees detected. Stash or commit changes, then run spr restack."
+    throw new GwError(
+      "Restack stopped: dirty worktrees detected. Stash or commit changes, then run gw restack."
     );
   }
 
-  const message = `spr auto-stash (${new Date().toISOString()})`;
+  const message = `gw auto-stash (${new Date().toISOString()})`;
   const entries: AutoStash["entries"] = [];
   for (const path of dirtyPaths) {
     const stashRef = await git.stashWorkingTree(path, message);
@@ -168,7 +168,7 @@ function worktreePathsForBranches(
   for (const branch of branches) {
     const node = graph.get(branch);
     if (!node) {
-      throw new SprError(`Branch ${branch} is not available in current local worktrees.`);
+      throw new GwError(`Branch ${branch} is not available in current local worktrees.`);
     }
     paths.push(node.worktreePath);
   }

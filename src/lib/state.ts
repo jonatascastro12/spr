@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import type { SyncPlan, SyncState } from "../types";
 
 function stateFilePath(commonGitDir: string): string {
-  return resolve(commonGitDir, "spr-state.json");
+  return resolve(commonGitDir, "gw-state.json");
 }
 
 export async function loadState(commonGitDir: string): Promise<SyncState | null> {

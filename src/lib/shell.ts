@@ -1,4 +1,4 @@
-import { SprError } from "./errors";
+import { GwError } from "./errors";
 
 export async function runCmd(
   cmd: string[],
@@ -17,7 +17,7 @@ export async function runCmd(
   ]);
 
   if (code !== 0 && !opts.allowFailure) {
-    throw new SprError(
+    throw new GwError(
       `Command failed (${code}): ${cmd.join(" ")}\n${stderr.trim() || stdout.trim()}`
     );
   }

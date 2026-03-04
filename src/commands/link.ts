@@ -1,7 +1,7 @@
 import * as git from "../lib/git";
 import * as metaStore from "../lib/meta";
 import * as ui from "../lib/ui";
-import { SprError } from "../lib/errors";
+import { GwError } from "../lib/errors";
 
 export async function runLink(opts: {
   branch?: string;
@@ -13,16 +13,16 @@ export async function runLink(opts: {
 
   const modeCount = Number(Boolean(opts.parentBranch)) + Number(Boolean(opts.childBranch));
   if (modeCount !== 1) {
-    throw new SprError("Usage: spr link [branch] (--parent <parent> | --child <child>)");
+    throw new GwError("Usage: gw link [branch] (--parent <parent> | --child <child>)");
   }
 
   const child = opts.parentBranch ? branch : opts.childBranch!;
   const parent = opts.parentBranch ?? branch;
   if (!child || !parent) {
-    throw new SprError("Usage: spr link [branch] (--parent <parent> | --child <child>)");
+    throw new GwError("Usage: gw link [branch] (--parent <parent> | --child <child>)");
   }
   if (child === parent) {
-    throw new SprError(`Cannot link branch '${child}' to itself.`);
+    throw new GwError(`Cannot link branch '${child}' to itself.`);
   }
 
   const commonDir = await git.gitCommonDir(repoRoot);

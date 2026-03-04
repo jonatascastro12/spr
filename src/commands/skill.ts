@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { SprError } from "../lib/errors";
+import { GwError } from "../lib/errors";
 import * as ui from "../lib/ui";
 
 type SkillOptions = {
@@ -12,12 +12,12 @@ type SkillOptions = {
   claudePath?: string;
 };
 
-const SKILL_NAME = "spr-usage";
+const SKILL_NAME = "gw-usage";
 
 export async function runSkill(opts: SkillOptions): Promise<void> {
-  const sourceDir = resolve(fileURLToPath(new URL("../../skills/spr-usage", import.meta.url)));
+  const sourceDir = resolve(fileURLToPath(new URL("../../skills/gw-usage", import.meta.url)));
   if (!existsSync(sourceDir)) {
-    throw new SprError(`Bundled skill source not found: ${sourceDir}`);
+    throw new GwError(`Bundled skill source not found: ${sourceDir}`);
   }
 
   const targets = resolveTargetRoots(opts);

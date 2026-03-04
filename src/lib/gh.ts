@@ -1,5 +1,5 @@
 import type { PrInfo, PrStateInfo } from "../types";
-import { MissingPrError, SprError } from "./errors";
+import { MissingPrError, GwError } from "./errors";
 import { runCmd } from "./shell";
 
 export async function viewPrByBranchOptional(branch: string): Promise<PrInfo | null> {
@@ -173,17 +173,17 @@ function parseGithubPrUrl(url: string): { owner: string; repo: string } {
   try {
     parsed = new URL(url);
   } catch {
-    throw new SprError(`Invalid PR URL: ${url}`);
+    throw new GwError(`Invalid PR URL: ${url}`);
   }
 
   const parts = parsed.pathname.split("/").filter(Boolean);
   if (parts.length < 4 || parts[2] !== "pull") {
-    throw new SprError(`Unexpected PR URL format: ${url}`);
+    throw new GwError(`Unexpected PR URL format: ${url}`);
   }
 
   const [owner, repo] = parts;
   if (!owner || !repo) {
-    throw new SprError(`Unexpected PR URL format: ${url}`);
+    throw new GwError(`Unexpected PR URL format: ${url}`);
   }
 
   return { owner, repo };

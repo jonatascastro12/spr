@@ -51,7 +51,7 @@ export type SyncState = {
   dryRun: boolean;
 };
 
-export type SprMeta = {
+export type GwMeta = {
   version: 1;
   parentByBranch: Record<string, string>;
 };

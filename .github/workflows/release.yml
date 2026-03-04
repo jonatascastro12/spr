@@ -15,16 +15,16 @@ jobs:
         include:
           - os: ubuntu-latest
             target: bun-linux-x64
-            artifact: spr-linux-x64
+            artifact: gw-linux-x64
           - os: ubuntu-latest
             target: bun-linux-arm64
-            artifact: spr-linux-arm64
+            artifact: gw-linux-arm64
           - os: macos-latest
             target: bun-darwin-arm64
-            artifact: spr-darwin-arm64
+            artifact: gw-darwin-arm64
           - os: macos-latest
             target: bun-darwin-x64
-            artifact: spr-darwin-x64
+            artifact: gw-darwin-x64
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -56,13 +56,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          chmod +x artifacts/spr-*
+          chmod +x artifacts/gw-*
           if gh release view "$TAG" --repo "${{ github.repository }}" > /dev/null 2>&1; then
-            gh release upload "$TAG" artifacts/spr-* \
+            gh release upload "$TAG" artifacts/gw-* \
               --repo "${{ github.repository }}" \
               --clobber
           else
-            gh release create "$TAG" artifacts/spr-* \
+            gh release create "$TAG" artifacts/gw-* \
               --repo "${{ github.repository }}" \
               --title "$TAG" \
               --generate-notes

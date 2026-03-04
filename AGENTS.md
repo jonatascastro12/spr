@@ -1,14 +1,14 @@
 # AGENTS.md
 
-This file documents architectural decisions and operating rules for contributors working on `spr`.
+This file documents architectural decisions and operating rules for contributors working on `gw`.
 
 ## Purpose
-`spr` manages stacked branches/PRs across Git worktrees with deterministic, low-surprise behavior.
+`gw` manages stacked branches/PRs across Git worktrees with deterministic, low-surprise behavior.
 
 ## Hard Decisions (Do Not Revert Without Discussion)
 1. Stack discovery is metadata-first, not PR-first.
-- Source of truth for parent linkage is `spr-meta.json` in git common dir.
-- `spr branch` must persist `child -> parent` linkage.
+- Source of truth for parent linkage is `gw-meta.json` in git common dir.
+- `gw branch` must persist `child -> parent` linkage.
 - Open PRs are optional for planning; required only for PR-specific operations.
 
 2. Worktree scope is auto-detected.
@@ -29,38 +29,38 @@ This file documents architectural decisions and operating rules for contributors
 - This avoids GraphQL errors (`Head sha can't be blank`, `Head ref must be a branch`).
 
 ## Command Semantics
-- `spr branch <name> [--from <branch>] [--worktree <path>]`
-  - Creates branch/worktree and records parent linkage in `spr-meta.json`.
+- `gw branch <name> [--from <branch>] [--worktree <path>]`
+  - Creates branch/worktree and records parent linkage in `gw-meta.json`.
 
-- `spr status [--from <branch>]`
+- `gw status [--from <branch>]`
   - Prints detected stack plan and checkpoint summary.
 
-- `spr jump [branch] [--from <branch>] [--print | --cd]`
+- `gw jump [branch] [--from <branch>] [--print | --cd]`
   - Interactively selects a branch from the detected stack with arrow keys and resolves its worktree path.
   - Optional positional `branch` skips interactive prompt.
   - `--print` outputs only the selected worktree path.
   - `--cd` outputs a shell-safe `cd -- <path>` command for `eval`.
 
-- `spr bootstrap [--from <branch>] [--worktree-root <path>] [--dry-run]`
-  - Discovers an already-open PR stack from GitHub, creates missing local worktrees, and persists parent linkage into `spr-meta.json`.
+- `gw bootstrap [--from <branch>] [--worktree-root <path>] [--dry-run]`
+  - Discovers an already-open PR stack from GitHub, creates missing local worktrees, and persists parent linkage into `gw-meta.json`.
 
-- `spr link [branch] (--parent <parent> | --child <child>)`
-  - Manually writes one `child -> parent` linkage in `spr-meta.json` (creates file automatically if missing).
+- `gw link [branch] (--parent <parent> | --child <child>)`
+  - Manually writes one `child -> parent` linkage in `gw-meta.json` (creates file automatically if missing).
   - If `branch` is omitted, uses current branch.
 
-- `spr skill [--path <skills-dir>] [--codex-path <skills-dir>] [--claude-path <skills-dir>]`
-  - Installs the bundled `spr-usage` skill for Codex (`$CODEX_HOME/skills` or `~/.codex/skills`) and Claude (`~/.claude/skills`).
+- `gw skill [--path <skills-dir>] [--codex-path <skills-dir>] [--claude-path <skills-dir>]`
+  - Installs the bundled `gw-usage` skill for Codex (`$CODEX_HOME/skills` or `~/.codex/skills`) and Claude (`~/.claude/skills`).
 
-- `spr sync [--dry-run] [--from <branch>]`
+- `gw sync [--dry-run] [--from <branch>]`
   - Auto-seeds missing parent links from open PR base refs, detects closed-but-merged ancestor PRs (merge queue), rewrites parent links to bypass merged branches, updates open PR base refs to match the resolved stack, then optionally creates missing PRs, rebases descendants in order, and pushes updates.
 
-- `spr resume`
-  - Continues failed sync from `spr-state.json`.
+- `gw resume`
+  - Continues failed sync from `gw-state.json`.
 
 ## Persistence Contract
 Stored under git common dir (`git rev-parse --git-common-dir`):
-- `spr-meta.json`: durable parent graph (`parentByBranch`).
-- `spr-state.json`: in-progress sync checkpoint only.
+- `gw-meta.json`: durable parent graph (`parentByBranch`).
+- `gw-state.json`: in-progress sync checkpoint only.
 
 If changing these schemas, include migration or backward-compat read logic.
 
@@ -86,24 +86,24 @@ If changing these schemas, include migration or backward-compat read logic.
 - Root branch may not need PR creation; only branches with recorded parents should be PR candidates in sync bootstrap.
 
 ## Test Checklist for Changes
-1. `spr status` prints expected stack for a 3-branch worktree stack.
-2. `spr sync --dry-run` prints plan and performs no writes.
-3. `spr sync` with missing PRs:
+1. `gw status` prints expected stack for a 3-branch worktree stack.
+2. `gw sync --dry-run` prints plan and performs no writes.
+3. `gw sync` with missing PRs:
 - prompts once
 - on `y`, pushes + creates PRs in order
 - then rebases/pushes descendants
-4. Inject a conflict and verify `spr-state.json` supports `spr resume`.
+4. Inject a conflict and verify `gw-state.json` supports `gw resume`.
 5. Validate behavior with no checkpoint (`resume` should fail clearly).
 6. Validate dirty-worktree flow:
-- `spr sync`/`spr resume` prompts to stash when uncommitted changes are present
+- `gw sync`/`gw resume` prompts to stash when uncommitted changes are present
 - on `y`, stash is created and command proceeds
 - on `n`, command aborts with a clear message
 7. Validate merge-queue closed PR handling:
-- if a parent PR is `CLOSED` but merged into base branch, `spr sync` rewrites child base to the merged PR base and removes merged branch from stack metadata
+- if a parent PR is `CLOSED` but merged into base branch, `gw sync` rewrites child base to the merged PR base and removes merged branch from stack metadata
 8. Validate jump navigation:
-- `spr jump` shows arrow-key interactive selection and returns selected worktree path
-- `spr jump <branch> --print` prints only worktree path for that branch
-- `spr jump --cd` prints a shell-safe `cd` command
+- `gw jump` shows arrow-key interactive selection and returns selected worktree path
+- `gw jump <branch> --print` prints only worktree path for that branch
+- `gw jump --cd` prints a shell-safe `cd` command
 
 ## Coding Rules
 - Keep modules small and single-purpose (`git`, `gh`, `plan`, `stack`, `state`, `meta`, `commands/*`).

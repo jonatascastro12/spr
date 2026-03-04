@@ -87,7 +87,7 @@ export async function git(cwd: string, args: string[], opts: GitOpts = {}): Prom
   return out.stdout.trim();
 }
 
-export async function runSpr(opts: {
+export async function runGw(opts: {
   cwd: string;
   args: string[];
   env?: Record<string, string | undefined>;
@@ -103,7 +103,7 @@ export async function runSpr(opts: {
   });
 }
 
-export async function setupBaseRepo(name = "spr-e2e"): Promise<{
+export async function setupBaseRepo(name = "gw-e2e"): Promise<{
   sandboxDir: string;
   remoteDir: string;
   repoDir: string;
@@ -116,8 +116,8 @@ export async function setupBaseRepo(name = "spr-e2e"): Promise<{
 
   await runCmd(["git", "init", "--bare", remoteDir], { cwd: sandboxDir });
   await runCmd(["git", "clone", remoteDir, repoDir], { cwd: sandboxDir });
-  await git(repoDir, ["config", "user.name", "spr e2e"]);
-  await git(repoDir, ["config", "user.email", "spr-e2e@example.com"]);
+  await git(repoDir, ["config", "user.name", "gw e2e"]);
+  await git(repoDir, ["config", "user.email", "gw-e2e@example.com"]);
   await git(repoDir, ["checkout", "-b", "main"]);
 
   await writeText(repoDir, "README.md", "# e2e\n");
@@ -154,7 +154,7 @@ export async function writeMeta(
   parentByBranch: Record<string, string>
 ): Promise<string> {
   const commonDir = await gitCommonDir(repoDir);
-  const file = join(commonDir, "spr-meta.json");
+  const file = join(commonDir, "gw-meta.json");
   await writeFile(
     file,
     `${JSON.stringify({ version: 1, parentByBranch }, null, 2)}\n`,
@@ -199,8 +199,8 @@ export async function setupFakeGh(opts: {
 
   return {
     env: {
-      SPR_E2E_GH_STATE: statePath,
-      SPR_E2E_GH_CALLS: callsPath,
+      GW_E2E_GH_STATE: statePath,
+      GW_E2E_GH_CALLS: callsPath,
       PATH: `${binDir}:${process.env.PATH ?? ""}`,
     },
     readCalls: async () => {
@@ -260,14 +260,14 @@ async function writeText(root: string, file: string, content: string): Promise<v
 const FAKE_GH_SCRIPT = `#!/usr/bin/env bun
 import { readFileSync, writeFileSync, appendFileSync } from "node:fs";
 
-const statePath = process.env.SPR_E2E_GH_STATE;
-const callsPath = process.env.SPR_E2E_GH_CALLS;
+const statePath = process.env.GW_E2E_GH_STATE;
+const callsPath = process.env.GW_E2E_GH_CALLS;
 if (!statePath) {
-  console.error("missing SPR_E2E_GH_STATE");
+  console.error("missing GW_E2E_GH_STATE");
   process.exit(1);
 }
 if (!callsPath) {
-  console.error("missing SPR_E2E_GH_CALLS");
+  console.error("missing GW_E2E_GH_CALLS");
   process.exit(1);
 }
 

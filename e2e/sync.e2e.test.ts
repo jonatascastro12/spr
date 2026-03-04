@@ -9,7 +9,7 @@ import {
   gitCommonDir,
   openPrState,
   readJson,
-  runSpr,
+  runGw,
   runCmd,
   setupBaseRepo,
   setupFakeGh,
@@ -84,10 +84,10 @@ function fixtureWithOpenPrs(branches: Array<{ branch: string; base: string; numb
   return { openByHead, viewBySelector };
 }
 
-describe("spr e2e: status/sync/resume", () => {
+describe("gw e2e: status/sync/resume", () => {
   test("status prints expected stack tree for 3-branch stack", async () => {
     const stack = await setupTwoBranchStack();
-    const out = await runSpr({
+    const out = await runGw({
       cwd: stack.wtB!,
       args: ["status", "--from", "feature/b"],
     });
@@ -111,10 +111,10 @@ describe("spr e2e: status/sync/resume", () => {
       ]),
     });
     const commonDir = await gitCommonDir(stack.repoDir);
-    const metaPath = join(commonDir, "spr-meta.json");
+    const metaPath = join(commonDir, "gw-meta.json");
     const beforeMeta = await readFile(metaPath, "utf8");
 
-    const out = await runSpr({
+    const out = await runGw({
       cwd: stack.wtB!,
       args: ["sync", "--dry-run", "--from", "feature/b"],
       env: fakeGh.env,
@@ -123,7 +123,7 @@ describe("spr e2e: status/sync/resume", () => {
     expect(out.code).toBe(0);
     expect(out.stdout).toContain("Stack root: main");
     expect(out.stdout).toContain("Rebase execution order:");
-    expect(existsSync(join(commonDir, "spr-state.json"))).toBe(false);
+    expect(existsSync(join(commonDir, "gw-state.json"))).toBe(false);
     const afterMeta = await readFile(metaPath, "utf8");
     expect(afterMeta).toBe(beforeMeta);
   });
@@ -134,7 +134,7 @@ describe("spr e2e: status/sync/resume", () => {
       sandboxDir: stack.sandboxDir,
       fixture: {},
     });
-    const out = await runSpr({
+    const out = await runGw({
       cwd: stack.wtB!,
       args: ["sync", "--from", "feature/b"],
       env: fakeGh.env,
@@ -155,7 +155,7 @@ describe("spr e2e: status/sync/resume", () => {
       sandboxDir: stack.sandboxDir,
       fixture: { requireRemoteHeadOnCreate: true },
     });
-    const out = await runSpr({
+    const out = await runGw({
       cwd: stack.wtB!,
       args: ["sync", "--from", "feature/b"],
       env: fakeGh.env,
@@ -178,7 +178,7 @@ describe("spr e2e: status/sync/resume", () => {
     });
     await writeFile(join(stack.wtA, "dirty.txt"), "dirty\n", "utf8");
 
-    const out = await runSpr({
+    const out = await runGw({
       cwd: stack.wtA,
       args: ["sync", "--from", "feature/a"],
       env: fakeGh.env,
@@ -199,7 +199,7 @@ describe("spr e2e: status/sync/resume", () => {
     });
     await writeFile(join(stack.wtA, "dirty.txt"), "dirty\n", "utf8");
 
-    const out = await runSpr({
+    const out = await runGw({
       cwd: stack.wtA,
       args: ["sync", "--from", "feature/a"],
       env: fakeGh.env,
@@ -211,7 +211,7 @@ describe("spr e2e: status/sync/resume", () => {
       "Re-apply stashed changes automatically after successful sync? [y/N]"
     );
     const stashList = await git(stack.wtA, ["stash", "list"]);
-    expect(stashList).toContain("spr auto-stash");
+    expect(stashList).toContain("gw auto-stash");
   });
 
   test("dirty worktree stash flow keeps stash when user chooses n to restore", async () => {
@@ -222,7 +222,7 @@ describe("spr e2e: status/sync/resume", () => {
     });
     await writeFile(join(stack.wtA, "dirty.txt"), "dirty\n", "utf8");
 
-    const out = await runSpr({
+    const out = await runGw({
       cwd: stack.wtA,
       args: ["sync", "--from", "feature/a"],
       env: fakeGh.env,
@@ -231,7 +231,7 @@ describe("spr e2e: status/sync/resume", () => {
 
     expect(out.code).toBe(0);
     const stashList = await git(stack.wtA, ["stash", "list"]);
-    expect(stashList).toContain("spr auto-stash");
+    expect(stashList).toContain("gw auto-stash");
   });
 
   test("sync rebase conflict saves checkpoint", async () => {
@@ -257,7 +257,7 @@ describe("spr e2e: status/sync/resume", () => {
       sandboxDir: stack.sandboxDir,
       fixture: fixtureWithOpenPrs([{ branch: "feature/a", base: "main", number: 220 }]),
     });
-    const out = await runSpr({
+    const out = await runGw({
       cwd: wtA,
       args: ["sync", "--from", "feature/a"],
       env: fakeGh.env,
@@ -268,7 +268,7 @@ describe("spr e2e: status/sync/resume", () => {
     expect(out.stderr).toContain("Rebase conflict on feature/a");
     const commonDir = await gitCommonDir(stack.repoDir);
     const state = await readJson<{ failedAt?: string; lastError?: string }>(
-      join(commonDir, "spr-state.json")
+      join(commonDir, "gw-state.json")
     );
     expect(state.failedAt).toBe("feature/a");
     expect(state.lastError).toContain("rebase");
@@ -276,7 +276,7 @@ describe("spr e2e: status/sync/resume", () => {
 
   test("resume fails clearly when no checkpoint exists", async () => {
     const stack = await setupOneBranchStack();
-    const out = await runSpr({
+    const out = await runGw({
       cwd: stack.wtA,
       args: ["resume"],
       allowFailure: true,
@@ -310,7 +310,7 @@ describe("spr e2e: status/sync/resume", () => {
       fixture: fixtureWithOpenPrs([{ branch: "feature/a", base: "main", number: 230 }]),
     });
 
-    const first = await runSpr({
+    const first = await runGw({
       cwd: wtA,
       args: ["sync", "--from", "feature/a"],
       env: fakeGh.env,
@@ -323,7 +323,7 @@ describe("spr e2e: status/sync/resume", () => {
     await git(wtA, ["add", "conflict.txt"]);
     await runCmd(["git", "-C", wtA, "-c", "core.editor=true", "rebase", "--continue"]);
 
-    const second = await runSpr({
+    const second = await runGw({
       cwd: wtA,
       args: ["resume"],
       env: fakeGh.env,
@@ -332,7 +332,7 @@ describe("spr e2e: status/sync/resume", () => {
     expect(second.stdout).toContain("Resume complete.");
 
     const commonDir = await gitCommonDir(stack.repoDir);
-    expect(existsSync(join(commonDir, "spr-state.json"))).toBe(false);
+    expect(existsSync(join(commonDir, "gw-state.json"))).toBe(false);
   });
 
   test("merged ancestor case pivots planning and updates child PR base", async () => {
@@ -364,7 +364,7 @@ describe("spr e2e: status/sync/resume", () => {
     };
     const fakeGh = await setupFakeGh({ sandboxDir: stack.sandboxDir, fixture });
 
-    const dryRun = await runSpr({
+    const dryRun = await runGw({
       cwd: stack.wtA,
       args: ["sync", "--dry-run", "--from", "feature/a"],
       env: fakeGh.env,
@@ -377,7 +377,7 @@ describe("spr e2e: status/sync/resume", () => {
       "feature/b PR #52907: feature/a -> main"
     );
 
-    const run = await runSpr({
+    const run = await runGw({
       cwd: stack.wtA,
       args: ["sync", "--from", "feature/a"],
       env: fakeGh.env,
@@ -385,7 +385,7 @@ describe("spr e2e: status/sync/resume", () => {
     expect(run.code).toBe(0);
     const commonDir = await gitCommonDir(stack.repoDir);
     const meta = await readJson<{ parentByBranch: Record<string, string> }>(
-      join(commonDir, "spr-meta.json")
+      join(commonDir, "gw-meta.json")
     );
     expect(meta.parentByBranch).toEqual({ "feature/b": "main" });
     const calls = await fakeGh.readCalls();
@@ -399,8 +399,8 @@ describe("spr e2e: status/sync/resume", () => {
     const stack = await setupOneBranchStack();
     const mirrorDir = join(stack.sandboxDir, "mirror");
     await git(stack.sandboxDir, ["clone", stack.remoteDir, mirrorDir]);
-    await git(mirrorDir, ["config", "user.name", "spr e2e"]);
-    await git(mirrorDir, ["config", "user.email", "spr-e2e@example.com"]);
+    await git(mirrorDir, ["config", "user.name", "gw e2e"]);
+    await git(mirrorDir, ["config", "user.email", "gw-e2e@example.com"]);
     await git(mirrorDir, ["checkout", "main"]);
     await commitFile(mirrorDir, "remote-only.txt", "remote\n", "remote update");
     await git(mirrorDir, ["push", "origin", "main"]);
@@ -410,7 +410,7 @@ describe("spr e2e: status/sync/resume", () => {
       fixture: fixtureWithOpenPrs([{ branch: "feature/a", base: "main", number: 240 }]),
     });
 
-    const out = await runSpr({
+    const out = await runGw({
       cwd: stack.wtA,
       args: ["sync", "--from", "feature/a"],
       env: fakeGh.env,

@@ -1,8 +1,8 @@
 import type { PrInfo } from "../types";
 import * as gh from "./gh";
 
-const STACK_SECTION_START = "<!-- spr-stack:start -->";
-const STACK_SECTION_END = "<!-- spr-stack:end -->";
+const STACK_SECTION_START = "<!-- gw-stack:start -->";
+const STACK_SECTION_END = "<!-- gw-stack:end -->";
 
 type StackPrEntry = {
   branch: string;

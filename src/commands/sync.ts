@@ -7,7 +7,7 @@ import { discoverPlan } from "../lib/plan";
 import * as prStack from "../lib/prStack";
 import * as stateStore from "../lib/state";
 import * as ui from "../lib/ui";
-import { ConflictError, SprError } from "../lib/errors";
+import { ConflictError, GwError } from "../lib/errors";
 
 export type SyncOptions = {
   dryRun?: boolean;
@@ -164,11 +164,11 @@ export async function runSync(opts: SyncOptions): Promise<void> {
   for (const branch of plan.rebaseOrder) {
     const node = graph.get(branch);
     if (!node) {
-      throw new SprError(`Missing graph node for branch: ${branch}`);
+      throw new GwError(`Missing graph node for branch: ${branch}`);
     }
     const parent = node.parent;
     if (!parent) {
-      throw new SprError(`Branch ${branch} does not have a parent in the planned stack`);
+      throw new GwError(`Branch ${branch} does not have a parent in the planned stack`);
     }
 
     try {
@@ -440,7 +440,7 @@ async function createMissingPrs(
     const base = parentByBranch[branch] ?? fallbackBase;
     const node = graph.get(branch);
     if (!node) {
-      throw new SprError(`Cannot create PR: missing worktree for branch ${branch}`);
+      throw new GwError(`Cannot create PR: missing worktree for branch ${branch}`);
     }
     ui.printInfo(`Pushing ${ui.styleBranch(branch)} to origin`);
     await git.pushBranch(node.worktreePath, "origin", branch);
@@ -484,12 +484,12 @@ async function ensureCleanOrStash(
     autoYes
   );
   if (!shouldStash) {
-    throw new SprError(
-      `Sync stopped: dirty worktrees detected. Stash or commit changes, then run spr ${action}.`
+    throw new GwError(
+      `Sync stopped: dirty worktrees detected. Stash or commit changes, then run gw${action}.`
     );
   }
 
-  const message = `spr auto-stash (${new Date().toISOString()})`;
+  const message = `gw auto-stash (${new Date().toISOString()})`;
   const entries: AutoStash["entries"] = [];
   for (const path of dirtyPaths) {
     const stashRef = await git.stashWorkingTree(path, message);
@@ -507,10 +507,10 @@ async function ensureCleanOrStash(
 async function runResume(repoRoot: string, commonDir: string, autoYes = false): Promise<void> {
   const existing = await stateStore.loadState(commonDir);
   if (!existing) {
-    throw new SprError("No saved sync state found.");
+    throw new GwError("No saved sync state found.");
   }
   if (existing.repoRoot !== repoRoot) {
-    throw new SprError(
+    throw new GwError(
       `Saved state repo mismatch. Expected ${repoRoot}, found ${existing.repoRoot}`
     );
   }
@@ -539,7 +539,7 @@ async function runResume(repoRoot: string, commonDir: string, autoYes = false): 
 
     const node = graph.get(branch);
     if (!node || !node.parent) {
-      throw new SprError(`Cannot resume: branch not found in current graph: ${branch}`);
+      throw new GwError(`Cannot resume: branch not found in current graph: ${branch}`);
     }
 
     try {
@@ -577,7 +577,7 @@ function worktreePathsForBranches(
   for (const branch of branches) {
     const node = graph.get(branch);
     if (!node) {
-      throw new SprError(`Branch ${branch} is not available in current local worktrees.`);
+      throw new GwError(`Branch ${branch} is not available in current local worktrees.`);
     }
     paths.push(node.worktreePath);
   }
@@ -590,7 +590,7 @@ async function fastForwardRootFromOrigin(
 ): Promise<void> {
   const rootNode = graph.get(rootBranch);
   if (!rootNode) {
-    throw new SprError(`Cannot update root branch: missing local worktree for ${rootBranch}`);
+    throw new GwError(`Cannot update root branch: missing local worktree for ${rootBranch}`);
   }
 
   ui.printStep(`Fast-forwarding root ${rootBranch} from origin/${rootBranch} (${rootNode.worktreePath})`);
@@ -598,7 +598,7 @@ async function fastForwardRootFromOrigin(
     await git.fetch(rootNode.worktreePath, "origin");
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new SprError(
+    throw new GwError(
       `Failed to fast-forward root branch ${rootBranch} in ${rootNode.worktreePath}. Resolve the root branch state and retry sync.\n${message}`
     );
   }
@@ -615,7 +615,7 @@ async function fastForwardRootFromOrigin(
     await git.fastForwardBranchFromRemote(rootNode.worktreePath, rootBranch, "origin");
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new SprError(
+    throw new GwError(
       `Failed to fast-forward root branch ${rootBranch} in ${rootNode.worktreePath}. Resolve the root branch state and retry sync.\n${message}`
     );
   }

@@ -1,14 +1,14 @@
 {
-  "name": "spr",
+  "name": "gw",
   "version": "0.1.0",
   "type": "module",
   "private": true,
   "bin": {
-    "spr": "./src/cli.ts"
+    "gw": "./src/cli.ts"
   },
   "scripts": {
-    "build": "bun build src/cli.ts --compile --minify --bytecode --outfile dist/spr",
-    "install-cli": "bun run build && cp dist/spr /usr/local/bin/spr && echo 'Installed spr to /usr/local/bin/spr'",
+    "build": "bun build src/cli.ts --compile --minify --bytecode --outfile dist/gw",
+    "install-cli": "bun run build && cp dist/gw /usr/local/bin/gw && echo 'Installed gw to /usr/local/bin/gw'",
     "dev": "bun run src/cli.ts",
     "sync": "bun run src/cli.ts sync",
     "typecheck": "tsc --noEmit",

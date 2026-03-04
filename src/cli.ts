@@ -1,13 +1,14 @@
 #!/usr/bin/env bun
 import { runBranch } from "./commands/branch";
 import { runBootstrap } from "./commands/bootstrap";
+import { runInit } from "./commands/init";
 import { runLink } from "./commands/link";
 import { runJump } from "./commands/jump";
 import { runSkill } from "./commands/skill";
 import { runStatus } from "./commands/status";
 import { runRestack } from "./commands/restack";
 import { runSync } from "./commands/sync";
-import { SprError } from "./lib/errors";
+import { GwError } from "./lib/errors";
 import * as ui from "./lib/ui";
 
 type ParsedArgs =
@@ -16,6 +17,10 @@ type ParsedArgs =
       dryRun: boolean;
       yes: boolean;
       fromBranch?: string;
+      help?: boolean;
+    }
+  | {
+      command: "init";
       help?: boolean;
     }
   | {
@@ -30,6 +35,7 @@ type ParsedArgs =
       name: string;
       fromBranch?: string;
       worktreePath?: string;
+      noWorktree?: boolean;
       help?: boolean;
     }
   | {
@@ -61,14 +67,22 @@ function parseArgs(argv: string[]): ParsedArgs {
     return { command: "sync", dryRun: false, yes: false, help: true };
   }
 
+  if (firstRaw === "init") {
+    if (restRaw.includes("-h") || restRaw.includes("--help")) {
+      return { command: "init", help: true };
+    }
+    return { command: "init" };
+  }
+
   if (firstRaw === "branch") {
     const [name, ...rest] = restRaw;
     if (!name || name.startsWith("-")) {
-      throw new SprError("Usage: spr branch <name> [--from <branch>] [--worktree <path>]");
+      throw new GwError("Usage: gw branch <name> [--from <branch>] [--worktree <path>]");
     }
 
     let fromBranch: string | undefined;
     let worktreePath: string | undefined;
+    let noWorktree = false;
 
     for (let i = 0; i < rest.length; i += 1) {
       const arg = rest[i];
@@ -82,15 +96,19 @@ function parseArgs(argv: string[]): ParsedArgs {
         i += 1;
         continue;
       }
+      if (arg === "--no-worktree") {
+        noWorktree = true;
+        continue;
+      }
       if (arg === "-h" || arg === "--help") {
-        return { command: "branch", name, fromBranch, worktreePath, help: true };
+        return { command: "branch", name, fromBranch, worktreePath, noWorktree, help: true };
       }
       if (arg.startsWith("-")) {
-        throw new SprError(`Unknown option: ${arg}`);
+        throw new GwError(`Unknown option: ${arg}`);
       }
     }
 
-    return { command: "branch", name, fromBranch, worktreePath };
+    return { command: "branch", name, fromBranch, worktreePath, noWorktree };
   }
 
   if (firstRaw === "bootstrap") {
@@ -118,7 +136,7 @@ function parseArgs(argv: string[]): ParsedArgs {
         return { command: "bootstrap", fromBranch, worktreeRoot, dryRun, help: true };
       }
       if (arg.startsWith("-")) {
-        throw new SprError(`Unknown option: ${arg}`);
+        throw new GwError(`Unknown option: ${arg}`);
       }
     }
 
@@ -150,13 +168,13 @@ function parseArgs(argv: string[]): ParsedArgs {
         return { command: "link", branch, parentBranch, childBranch, help: true };
       }
       if (arg.startsWith("-")) {
-        throw new SprError(`Unknown option: ${arg}`);
+        throw new GwError(`Unknown option: ${arg}`);
       }
     }
 
     const modeCount = Number(Boolean(parentBranch)) + Number(Boolean(childBranch));
     if (modeCount !== 1) {
-      throw new SprError("Usage: spr link [branch] (--parent <parent> | --child <child>)");
+      throw new GwError("Usage: gw link [branch] (--parent <parent> | --child <child>)");
     }
     return { command: "link", branch, parentBranch, childBranch };
   }
@@ -186,7 +204,7 @@ function parseArgs(argv: string[]): ParsedArgs {
         return { command: "skill", path, codexPath, claudePath, help: true };
       }
       if (arg.startsWith("-")) {
-        throw new SprError(`Unknown option: ${arg}`);
+        throw new GwError(`Unknown option: ${arg}`);
       }
     }
     return { command: "skill", path, codexPath, claudePath };
@@ -221,12 +239,12 @@ function parseArgs(argv: string[]): ParsedArgs {
         return { command: "jump", fromBranch, branch, printOnly, cdCommand, help: true };
       }
       if (arg.startsWith("-")) {
-        throw new SprError(`Unknown option: ${arg}`);
+        throw new GwError(`Unknown option: ${arg}`);
       }
     }
 
     if (printOnly && cdCommand) {
-      throw new SprError("Use either --print or --cd with 'jump', not both.");
+      throw new GwError("Use either --print or --cd with 'jump', not both.");
     }
 
     return { command: "jump", fromBranch, branch, printOnly, cdCommand };
@@ -239,7 +257,7 @@ function parseArgs(argv: string[]): ParsedArgs {
   } else if (firstRaw.startsWith("-")) {
     rest = [firstRaw, ...restRaw];
   } else {
-    throw new SprError(`Unknown command: ${firstRaw}`);
+    throw new GwError(`Unknown command: ${firstRaw}`);
   }
 
   let dryRun = false;
@@ -265,7 +283,7 @@ function parseArgs(argv: string[]): ParsedArgs {
       return { command, dryRun, yes, fromBranch, help: true };
     }
     if (arg.startsWith("-")) {
-      throw new SprError(`Unknown option: ${arg}`);
+      throw new GwError(`Unknown option: ${arg}`);
     }
   }
 
@@ -273,28 +291,30 @@ function parseArgs(argv: string[]): ParsedArgs {
 }
 
 function printHelp(): void {
-  ui.printInfo(`${ui.styleBold("spr")} - stacked PR sync for git worktrees
+  ui.printInfo(`${ui.styleBold("gw")} - stacked PR sync for git worktrees
 
 Usage:
-  spr sync [--dry-run] [--from <branch>] [--yes]
-  spr restack [--dry-run] [--from <branch>] [--yes]
-  spr resume [--yes]
-  spr status [--from <branch>]
-  spr jump [branch] [--from <branch>] [--print | --cd]
-  spr bootstrap [--from <branch>] [--worktree-root <path>] [--dry-run]
-  spr link [branch] (--parent <parent> | --child <child>)
-  spr skill [--path <skills-dir>] [--codex-path <skills-dir>] [--claude-path <skills-dir>]
-  spr branch <name> [--from <branch>] [--worktree <path>]
+  gw init
+  gw sync [--dry-run] [--from <branch>] [--yes]
+  gw restack [--dry-run] [--from <branch>] [--yes]
+  gw resume [--yes]
+  gw status [--from <branch>]
+  gw jump [branch] [--from <branch>] [--print | --cd]
+  gw bootstrap [--from <branch>] [--worktree-root <path>] [--dry-run]
+  gw link [branch] (--parent <parent> | --child <child>)
+  gw skill [--path <skills-dir>] [--codex-path <skills-dir>] [--claude-path <skills-dir>]
+  gw branch <name> [--from <branch>] [--worktree <path>] [--no-worktree]
 
 Commands:
+  init      Configure worktree root for the current repository
   sync      Auto-detect related worktrees in your stack, create missing PRs if needed, then rebase descendants in order
   restack   Rebase and push only descendant branches below current (or --from) branch
   resume    Continue a previously failed sync
   status    Show detected stack plan and current checkpoint state
   jump      Interactively select a stack branch and print the target path
-  bootstrap Seed local worktrees and spr-meta.json from an already-open stacked PR chain
-  link      Create or update one parent-child linkage in spr-meta.json
-  skill     Install the bundled spr-usage skill for Codex and Claude
+  bootstrap Seed local worktrees and gw-meta.json from an already-open stacked PR chain
+  link      Create or update one parent-child linkage in gw-meta.json
+  skill     Install the bundled gw-usage skill for Codex and Claude
   branch    Create a branch from parent and persist stack parent metadata
 
 Options:
@@ -304,6 +324,7 @@ Options:
   --print   For 'jump': print selected worktree path only
   --cd      For 'jump': print a shell-safe 'cd -- <path>' command for eval
   --worktree-root Directory where bootstrap creates missing worktrees
+  --no-worktree For 'branch': skip automatic worktree creation even if configured
   --parent  For 'link': treat [branch] (or current branch) as child and link it to this parent
   --child   For 'link': treat [branch] (or current branch) as parent and link this child to it
   --path    For 'skill': install into one skills root directory
@@ -334,8 +355,18 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (args.command === "init") {
+    await runInit();
+    return;
+  }
+
   if (args.command === "branch") {
-    await runBranch({ name: args.name, fromBranch: args.fromBranch, worktreePath: args.worktreePath });
+    await runBranch({
+      name: args.name,
+      fromBranch: args.fromBranch,
+      worktreePath: args.worktreePath,
+      noWorktree: args.noWorktree,
+    });
     return;
   }
 

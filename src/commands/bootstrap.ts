@@ -3,10 +3,11 @@ import { mkdir } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import * as gh from "../lib/gh";
 import * as git from "../lib/git";
+import * as config from "../lib/config";
 import * as metaStore from "../lib/meta";
 import { discoverPlan } from "../lib/plan";
 import * as ui from "../lib/ui";
-import { SprError } from "../lib/errors";
+import { GwError } from "../lib/errors";
 
 type BootstrapOptions = {
   fromBranch?: string;
@@ -30,15 +31,23 @@ export async function runBootstrap(opts: BootstrapOptions): Promise<void> {
   const repoRoot = await git.repoRoot();
   const commonDir = await git.gitCommonDir(repoRoot);
   const fromBranch = opts.fromBranch ?? (await git.currentBranch());
+
+  let resolvedRoot = opts.worktreeRoot;
+  if (!resolvedRoot) {
+    const repoId = await git.repoIdentifier().catch(() => undefined);
+    if (repoId) {
+      resolvedRoot = await config.getRepoWorktreeRoot(repoId);
+    }
+  }
   const worktreeRoot = resolve(
-    opts.worktreeRoot ?? join(dirname(repoRoot), `${basename(repoRoot)}-spr-worktrees`)
+    resolvedRoot ?? join(dirname(repoRoot), `${basename(repoRoot)}-gw-worktrees`)
   );
 
   await git.fetch(repoRoot, "origin");
 
   const stack = await discoverBootstrapStack(fromBranch);
   if (stack.parentByBranch.size === 0) {
-    throw new SprError(
+    throw new GwError(
       `No open stacked PR chain found from '${fromBranch}'. Pass --from <branch> for a branch in the stack.`
     );
   }
@@ -80,7 +89,7 @@ export async function runBootstrap(opts: BootstrapOptions): Promise<void> {
     meta.parentByBranch[child] = parent;
   }
   await metaStore.saveMeta(commonDir, meta);
-  ui.printSuccess(`Saved ${stack.parentByBranch.size} parent link(s) to spr-meta.json`);
+  ui.printSuccess(`Saved ${stack.parentByBranch.size} parent link(s) to gw-meta.json`);
 
   const { plan } = await discoverPlan({ fromBranch });
   ui.printPlan(plan);
@@ -101,12 +110,12 @@ async function planWorktreeActions(
       continue;
     }
 
-    const worktreePath = resolve(worktreeRoot, sanitizeBranchForPath(branch));
+    const worktreePath = resolve(worktreeRoot, git.sanitizeBranchForPath(branch));
     if (occupiedPaths.has(worktreePath)) {
-      throw new SprError(`Worktree path already in use by another branch: ${worktreePath}`);
+      throw new GwError(`Worktree path already in use by another branch: ${worktreePath}`);
     }
     if (existsSync(worktreePath)) {
-      throw new SprError(`Cannot create worktree for ${branch}; path already exists: ${worktreePath}`);
+      throw new GwError(`Cannot create worktree for ${branch}; path already exists: ${worktreePath}`);
     }
 
     const source = (await git.localBranchExists(repoRoot, branch))
@@ -115,7 +124,7 @@ async function planWorktreeActions(
         ? "origin"
         : null;
     if (!source) {
-      throw new SprError(
+      throw new GwError(
         `Branch '${branch}' does not exist locally and origin/${branch} was not found.`
       );
     }
@@ -169,7 +178,7 @@ async function discoverBootstrapStack(fromBranch: string): Promise<BootstrapStac
   const seenAncestors = new Set<string>();
   while (true) {
     if (seenAncestors.has(cursor)) {
-      throw new SprError(`Cycle detected while walking ancestor PR chain at '${cursor}'.`);
+      throw new GwError(`Cycle detected while walking ancestor PR chain at '${cursor}'.`);
     }
     seenAncestors.add(cursor);
 
@@ -191,7 +200,7 @@ async function discoverBootstrapStack(fromBranch: string): Promise<BootstrapStac
       break;
     }
     if (children.length > 1) {
-      throw new SprError(
+      throw new GwError(
         `Branch '${cursor}' has multiple open child PRs: ${children
           .map((pr) => pr.headRefName)
           .sort()
@@ -201,7 +210,7 @@ async function discoverBootstrapStack(fromBranch: string): Promise<BootstrapStac
 
     const child = children[0].headRefName;
     if (seenDescendants.has(child)) {
-      throw new SprError(`Cycle detected while walking descendant PR chain at '${child}'.`);
+      throw new GwError(`Cycle detected while walking descendant PR chain at '${child}'.`);
     }
     seenDescendants.add(child);
     setParentEdge(parentByBranch, child, cursor);
@@ -216,7 +225,7 @@ async function discoverBootstrapStack(fromBranch: string): Promise<BootstrapStac
 
   const roots = [...allBranches].filter((branch) => !parentByBranch.has(branch)).sort();
   if (roots.length !== 1) {
-    throw new SprError(
+    throw new GwError(
       `Expected exactly one stack root from bootstrap discovery, found ${roots.length}: ${roots.join(", ")}`
     );
   }
@@ -225,7 +234,7 @@ async function discoverBootstrapStack(fromBranch: string): Promise<BootstrapStac
   const childByParent = new Map<string, string>();
   for (const [child, parent] of parentByBranch) {
     if (childByParent.has(parent)) {
-      throw new SprError(
+      throw new GwError(
         `Branch '${parent}' has multiple children in discovered PR stack. Bootstrap requires a linear stack.`
       );
     }
@@ -237,7 +246,7 @@ async function discoverBootstrapStack(fromBranch: string): Promise<BootstrapStac
   let branch = root;
   while (branch) {
     if (seenOrder.has(branch)) {
-      throw new SprError(`Cycle detected while ordering discovered stack at '${branch}'.`);
+      throw new GwError(`Cycle detected while ordering discovered stack at '${branch}'.`);
     }
     seenOrder.add(branch);
     order.push(branch);
@@ -245,7 +254,7 @@ async function discoverBootstrapStack(fromBranch: string): Promise<BootstrapStac
   }
 
   if (order.length !== allBranches.size) {
-    throw new SprError(
+    throw new GwError(
       `Discovered PR stack is disconnected; expected ${allBranches.size} branches but ordered ${order.length}.`
     );
   }
@@ -260,16 +269,10 @@ async function discoverBootstrapStack(fromBranch: string): Promise<BootstrapStac
 function setParentEdge(parentByBranch: Map<string, string>, child: string, parent: string): void {
   const existing = parentByBranch.get(child);
   if (existing && existing !== parent) {
-    throw new SprError(
+    throw new GwError(
       `Conflicting discovered parents for '${child}': '${existing}' and '${parent}'.`
     );
   }
   parentByBranch.set(child, parent);
 }
 
-function sanitizeBranchForPath(branch: string): string {
-  return branch
-    .replaceAll("/", "__")
-    .replace(/[^A-Za-z0-9._-]+/g, "-")
-    .replace(/-+/g, "-");
-}
