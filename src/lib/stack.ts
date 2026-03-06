@@ -62,6 +62,34 @@ export function connectedComponent(graph: Map<string, StackNode>, fromBranch: st
   return seen;
 }
 
+export function collectDescendants(
+  graph: Map<string, { children: string[] }>,
+  fromBranch: string
+): Set<string> {
+  const descendants = new Set<string>();
+  const queue = [...(graph.get(fromBranch)?.children ?? [])].sort();
+
+  while (queue.length > 0) {
+    const branch = queue.shift()!;
+    if (descendants.has(branch)) {
+      continue;
+    }
+    descendants.add(branch);
+    const node = graph.get(branch);
+    if (!node) {
+      continue;
+    }
+    for (const child of node.children) {
+      if (!descendants.has(child)) {
+        queue.push(child);
+      }
+    }
+    queue.sort();
+  }
+
+  return descendants;
+}
+
 export function makePlan(graph: Map<string, StackNode>, component: Set<string>): SyncPlan {
   const inComp = (branch: string) => component.has(branch);
   const compNodes = [...component].sort();
