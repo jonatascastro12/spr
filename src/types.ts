@@ -41,14 +41,16 @@ export type SyncState = {
   version: 1;
   repoRoot: string;
   startedAt: string;
-  command: "sync";
+  command: "sync" | "restack";
   rootBranch: string;
   stackBranches: string[];
   executionOrder: string[];
   completed: string[];
   failedAt?: string;
+  failedWorktreePath?: string;
   lastError?: string;
   dryRun: boolean;
+  snapshotTimestamp?: string;
 };
 
 export type GwMeta = {

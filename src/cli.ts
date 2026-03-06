@@ -1,19 +1,22 @@
 #!/usr/bin/env bun
+import { runAbort } from "./commands/abort";
 import { runBranch } from "./commands/branch";
 import { runBootstrap } from "./commands/bootstrap";
 import { runInit } from "./commands/init";
 import { runLink } from "./commands/link";
 import { runJump } from "./commands/jump";
+import { runResolve } from "./commands/resolve";
 import { runSkill } from "./commands/skill";
 import { runStatus } from "./commands/status";
 import { runRestack } from "./commands/restack";
+import { runSubmit } from "./commands/submit";
 import { runSync } from "./commands/sync";
-import { GwError } from "./lib/errors";
+import { ConflictError, GwError } from "./lib/errors";
 import * as ui from "./lib/ui";
 
 type ParsedArgs =
   | {
-      command: "sync" | "resume" | "status" | "restack";
+      command: "sync" | "resume" | "status" | "restack" | "submit";
       dryRun: boolean;
       yes: boolean;
       fromBranch?: string;
@@ -58,6 +61,17 @@ type ParsedArgs =
       branch?: string;
       printOnly: boolean;
       cdCommand: boolean;
+      help?: boolean;
+    }
+  | {
+      command: "abort";
+      rollback?: boolean;
+      yes?: boolean;
+      help?: boolean;
+    }
+  | {
+      command: "resolve";
+      tool?: "claude" | "codex";
       help?: boolean;
     };
 
@@ -210,6 +224,52 @@ function parseArgs(argv: string[]): ParsedArgs {
     return { command: "skill", path, codexPath, claudePath };
   }
 
+  if (firstRaw === "abort") {
+    let rollback = false;
+    let yes = false;
+    for (let i = 0; i < restRaw.length; i += 1) {
+      const arg = restRaw[i];
+      if (arg === "--rollback") {
+        rollback = true;
+        continue;
+      }
+      if (arg === "--yes" || arg === "-y") {
+        yes = true;
+        continue;
+      }
+      if (arg === "-h" || arg === "--help") {
+        return { command: "abort", rollback, yes, help: true };
+      }
+      if (arg.startsWith("-")) {
+        throw new GwError(`Unknown option: ${arg}`);
+      }
+    }
+    return { command: "abort", rollback, yes };
+  }
+
+  if (firstRaw === "resolve") {
+    let tool: "claude" | "codex" | undefined;
+    for (let i = 0; i < restRaw.length; i += 1) {
+      const arg = restRaw[i];
+      if (arg === "--tool") {
+        const val = restRaw[i + 1];
+        if (val !== "claude" && val !== "codex") {
+          throw new GwError("--tool must be 'claude' or 'codex'");
+        }
+        tool = val;
+        i += 1;
+        continue;
+      }
+      if (arg === "-h" || arg === "--help") {
+        return { command: "resolve", tool, help: true };
+      }
+      if (arg.startsWith("-")) {
+        throw new GwError(`Unknown option: ${arg}`);
+      }
+    }
+    return { command: "resolve", tool };
+  }
+
   if (firstRaw === "jump") {
     const [maybeBranch, ...tail] = restRaw;
     const hasPositionalBranch = Boolean(maybeBranch) && !maybeBranch!.startsWith("-");
@@ -250,9 +310,9 @@ function parseArgs(argv: string[]): ParsedArgs {
     return { command: "jump", fromBranch, branch, printOnly, cdCommand };
   }
 
-  let command: "sync" | "resume" | "status" | "restack" = "sync";
+  let command: "sync" | "resume" | "status" | "restack" | "submit" = "sync";
   let rest = restRaw;
-  if (firstRaw === "sync" || firstRaw === "resume" || firstRaw === "status" || firstRaw === "restack") {
+  if (firstRaw === "sync" || firstRaw === "resume" || firstRaw === "status" || firstRaw === "restack" || firstRaw === "submit") {
     command = firstRaw;
   } else if (firstRaw.startsWith("-")) {
     rest = [firstRaw, ...restRaw];
@@ -296,8 +356,11 @@ function printHelp(): void {
 Usage:
   gw init
   gw sync [--dry-run] [--from <branch>] [--yes]
+  gw submit [--dry-run] [--from <branch>] [--yes]
   gw restack [--dry-run] [--from <branch>] [--yes]
   gw resume [--yes]
+  gw abort [--rollback] [--yes]
+  gw resolve [--tool <claude|codex>]
   gw status [--from <branch>]
   gw jump [branch] [--from <branch>] [--print | --cd]
   gw bootstrap [--from <branch>] [--worktree-root <path>] [--dry-run]
@@ -308,8 +371,11 @@ Usage:
 Commands:
   init      Configure worktree root for the current repository
   sync      Auto-detect related worktrees in your stack, create missing PRs if needed, then rebase descendants in order
+  submit    Push current branch and descendants, create/update PRs (no rebase)
   restack   Rebase and push only descendant branches below current (or --from) branch
-  resume    Continue a previously failed sync
+  resume    Continue a previously failed sync or restack
+  abort     Abort a failed sync/restack and clean up state (--rollback resets branches to pre-sync SHAs)
+  resolve   Use AI (Claude/Codex) to resolve rebase conflicts
   status    Show detected stack plan and current checkpoint state
   jump      Interactively select a stack branch and print the target path
   bootstrap Seed local worktrees and gw-meta.json from an already-open stacked PR chain
@@ -321,6 +387,8 @@ Options:
   -y, --yes Auto-confirm all prompts (useful for non-interactive/agent use)
   --dry-run Show plan only, do not mutate branches
   --from    Override start branch for stack component detection
+  --rollback  For 'abort': reset ALL branches to pre-sync SHAs
+  --tool    For 'resolve': specify AI tool (claude or codex)
   --print   For 'jump': print selected worktree path only
   --cd      For 'jump': print a shell-safe 'cd -- <path>' command for eval
   --worktree-root Directory where bootstrap creates missing worktrees
@@ -340,6 +408,16 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (args.command === "abort") {
+    await runAbort({ rollback: args.rollback, yes: args.yes });
+    return;
+  }
+
+  if (args.command === "resolve") {
+    await runResolve({ tool: args.tool });
+    return;
+  }
+
   if (args.command === "resume") {
     await runSync({ resume: true, yes: args.yes });
     return;
@@ -352,6 +430,11 @@ async function main(): Promise<void> {
 
   if (args.command === "restack") {
     await runRestack({ dryRun: args.dryRun, fromBranch: args.fromBranch, yes: args.yes });
+    return;
+  }
+
+  if (args.command === "submit") {
+    await runSubmit({ dryRun: args.dryRun, fromBranch: args.fromBranch, yes: args.yes });
     return;
   }
 
@@ -407,6 +490,24 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
+  if (err instanceof ConflictError) {
+    console.error(ui.styleError(`Rebase conflict on ${err.branch}`));
+    console.error("");
+    console.error("  To resolve manually:");
+    console.error(`    1. cd ${err.worktreePath}`);
+    console.error("    2. Fix conflicting files, then: git add <files>");
+    console.error("    3. git rebase --continue");
+    console.error("    4. gw resume");
+    console.error("");
+    console.error("  To resolve with AI:");
+    console.error("    gw resolve");
+    console.error("");
+    console.error("  To abort:");
+    console.error("    gw abort              (abort rebase, keep already-synced branches)");
+    console.error("    gw abort --rollback   (abort and reset ALL branches to pre-sync state)");
+    process.exit(1);
+  }
+
   const message = err instanceof Error ? err.message : String(err);
   console.error(ui.styleError(message));
   process.exit(1);

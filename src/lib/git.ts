@@ -223,6 +223,93 @@ export async function repoIdentifier(cwd = process.cwd()): Promise<string> {
   return `${sshMatch[1]}/${sshMatch[2]}`;
 }
 
+export async function isRebaseInProgress(worktreePath: string): Promise<boolean> {
+  const gitDir = await runCmd(["git", "-C", worktreePath, "rev-parse", "--git-dir"]);
+  const resolvedGitDir = gitDir.startsWith("/") ? gitDir : `${worktreePath}/${gitDir}`;
+  const { existsSync } = await import("node:fs");
+  return (
+    existsSync(`${resolvedGitDir}/rebase-merge`) ||
+    existsSync(`${resolvedGitDir}/rebase-apply`)
+  );
+}
+
+export async function rebaseAbort(worktreePath: string): Promise<void> {
+  await runCmd(["git", "-C", worktreePath, "rebase", "--abort"]);
+}
+
+export async function listConflictedFiles(worktreePath: string): Promise<string[]> {
+  const out = await runCmd(["git", "-C", worktreePath, "diff", "--name-only", "--diff-filter=U"], {
+    allowFailure: true,
+  });
+  return out
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+}
+
+export async function rebaseContinue(worktreePath: string): Promise<void> {
+  await runCmd(["git", "-C", worktreePath, "rebase", "--continue"], {
+    cwd: worktreePath,
+  });
+}
+
+export async function resetHard(worktreePath: string, sha: string): Promise<void> {
+  await runCmd(["git", "-C", worktreePath, "reset", "--hard", sha]);
+}
+
+export async function createBackupRef(
+  cwd: string,
+  branch: string,
+  sha: string,
+  timestamp: string
+): Promise<void> {
+  await runCmd([
+    "git",
+    "-C",
+    cwd,
+    "update-ref",
+    `refs/gw-backup/${branch}/${timestamp}`,
+    sha,
+  ]);
+}
+
+export async function listBackupRefs(
+  cwd: string,
+  opts?: { branch?: string; timestamp?: string }
+): Promise<Array<{ branch: string; timestamp: string; sha: string; refPath: string }>> {
+  let prefix = "refs/gw-backup/";
+  if (opts?.branch && opts?.timestamp) {
+    prefix = `refs/gw-backup/${opts.branch}/${opts.timestamp}`;
+  } else if (opts?.branch) {
+    prefix = `refs/gw-backup/${opts.branch}/`;
+  }
+
+  const out = await runCmd(
+    ["git", "-C", cwd, "for-each-ref", "--format=%(refname) %(objectname)", prefix],
+    { allowFailure: true }
+  );
+  if (!out.trim()) {
+    return [];
+  }
+
+  return out
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [refPath, sha] = line.split(" ");
+      // refs/gw-backup/<branch>/<timestamp>
+      const parts = refPath.replace("refs/gw-backup/", "").split("/");
+      const timestamp = parts.pop()!;
+      const branch = parts.join("/");
+      return { branch, timestamp, sha, refPath };
+    });
+}
+
+export async function deleteBackupRef(cwd: string, refPath: string): Promise<void> {
+  await runCmd(["git", "-C", cwd, "update-ref", "-d", refPath]);
+}
+
 export function sanitizeBranchForPath(branch: string): string {
   return branch
     .replaceAll("/", "__")

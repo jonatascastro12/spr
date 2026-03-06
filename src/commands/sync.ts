@@ -1,10 +1,16 @@
-import { createInterface } from "node:readline/promises";
-import { stdin as input, stdout as output } from "node:process";
 import * as gh from "../lib/gh";
 import * as git from "../lib/git";
 import * as metaStore from "../lib/meta";
 import { discoverPlan } from "../lib/plan";
-import * as prStack from "../lib/prStack";
+import {
+  askYesNo,
+  applyPrBaseUpdates,
+  createMissingPrs,
+  findMissingPrs,
+  findPrBaseUpdates,
+  updateBranchStackDescriptionSafe,
+  updateStackDescriptionsSafe,
+} from "../lib/pr-ops";
 import * as stateStore from "../lib/state";
 import * as ui from "../lib/ui";
 import { ConflictError, GwError } from "../lib/errors";
@@ -98,7 +104,7 @@ export async function runSync(opts: SyncOptions): Promise<void> {
   }
 
   const stackBranchesForPrs = plan.allBranches.filter((branch) => parentByBranch[branch]);
-  const baseUpdates = await findPrBaseUpdates(stackBranchesForPrs, parentByBranch);
+  const baseUpdates = await findPrBaseUpdates(stackBranchesForPrs, parentByBranch, repoRoot);
   if (baseUpdates.length > 0) {
     const prefix = opts.dryRun ? "Dry-run: " : "";
     ui.printStep(
@@ -149,16 +155,18 @@ export async function runSync(opts: SyncOptions): Promise<void> {
     }
   }
 
-  if (baseUpdates.length > 0) {
-    await applyPrBaseUpdates(baseUpdates);
-  }
-
-  if (shouldCreateMissingPrs) {
-    await createMissingPrs(stackBranchesForPrs, missingPrs, parentByBranch, repoRoot, graph);
-  }
-
   ui.printSyncHeader();
-  let state = stateStore.makeInitialState(repoRoot, plan, false);
+  const snapshotTimestamp = Date.now().toString();
+  const worktrees = await git.listWorktrees(repoRoot);
+  const wtByBranch = new Map(worktrees.map((wt) => [wt.branch, wt]));
+  for (const branch of plan.allBranches) {
+    const wt = wtByBranch.get(branch);
+    if (wt) {
+      await git.createBackupRef(repoRoot, branch, wt.headSha, snapshotTimestamp);
+    }
+  }
+
+  let state = stateStore.makeInitialState(repoRoot, plan, false, { snapshotTimestamp });
   await stateStore.saveState(commonDir, state);
 
   for (const branch of plan.rebaseOrder) {
@@ -187,10 +195,18 @@ export async function runSync(opts: SyncOptions): Promise<void> {
       await stateStore.saveState(commonDir, state);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      state = { ...state, failedAt: branch, lastError: message };
+      state = { ...state, failedAt: branch, failedWorktreePath: node.worktreePath, lastError: message };
       await stateStore.saveState(commonDir, state);
       throw new ConflictError(branch, node.worktreePath, message);
     }
+  }
+
+  if (baseUpdates.length > 0) {
+    await applyPrBaseUpdates(baseUpdates);
+  }
+
+  if (shouldCreateMissingPrs) {
+    await createMissingPrs(stackBranchesForPrs, missingPrs, parentByBranch, repoRoot, graph);
   }
 
   await stateStore.clearState(commonDir);
@@ -228,63 +244,6 @@ async function inferMissingParentsFromPrs(
   return inferred;
 }
 
-async function findMissingPrs(branches: string[]): Promise<string[]> {
-  const missing: string[] = [];
-  for (const branch of branches) {
-    const pr = await gh.viewOpenPrByHeadBranch(branch);
-    if (!pr) {
-      missing.push(branch);
-    }
-  }
-  return missing;
-}
-
-type PrBaseUpdate = {
-  branch: string;
-  prNumber: number;
-  currentBase: string;
-  expectedBase: string;
-  url: string;
-};
-
-async function findPrBaseUpdates(
-  branches: string[],
-  parentByBranch: Record<string, string>
-): Promise<PrBaseUpdate[]> {
-  const updates: PrBaseUpdate[] = [];
-  for (const branch of branches) {
-    const expectedBase = parentByBranch[branch];
-    if (!expectedBase) {
-      continue;
-    }
-
-    const pr = await gh.viewOpenPrByHeadBranch(branch);
-    if (!pr) {
-      continue;
-    }
-    if (pr.baseRefName === expectedBase) {
-      continue;
-    }
-
-    updates.push({
-      branch,
-      prNumber: pr.number,
-      currentBase: pr.baseRefName,
-      expectedBase,
-      url: pr.url,
-    });
-  }
-  return updates;
-}
-
-async function applyPrBaseUpdates(updates: PrBaseUpdate[]): Promise<void> {
-  for (const update of updates) {
-    await gh.updatePrBase({ number: update.prNumber, url: update.url }, update.expectedBase);
-    ui.printSuccess(
-      `Updated PR #${update.prNumber} base for ${ui.styleBranch(update.branch)} to ${ui.styleBranch(update.expectedBase)}`
-    );
-  }
-}
 
 type MergedParentResolution = {
   parentByBranch: Record<string, string>;
@@ -320,9 +279,6 @@ async function resolveMergedParentsInStack(
 
     for (const branch of candidates) {
       const grandParent = nextParents[branch];
-      if (!grandParent) {
-        continue;
-      }
 
       let detection = detectionByBranch.get(branch);
       if (!detection) {
@@ -339,11 +295,15 @@ async function resolveMergedParentsInStack(
         .sort();
 
       for (const child of children) {
-        nextParents[child] = grandParent;
+        if (grandParent) {
+          nextParents[child] = grandParent;
+        } else {
+          delete nextParents[child];
+        }
         rewiredChildren.push({
           child,
           previousParent: branch,
-          newParent: grandParent,
+          newParent: grandParent ?? detection.baseRef.replace(/^origin\//, ""),
         });
       }
 
@@ -387,6 +347,15 @@ function listMergedBranchCandidates(
     cursor = parent;
   }
 
+  // Include the stack root so we can detect if it was merged.
+  // The root has no parent entry but is referenced as a parent by other branches.
+  if (cursor.length > 0 && seen.has(cursor) && !parentByBranch[cursor]) {
+    const isReferencedAsParent = Object.values(parentByBranch).some((p) => p === cursor);
+    if (isReferencedAsParent) {
+      candidates.push(cursor);
+    }
+  }
+
   return candidates;
 }
 
@@ -423,46 +392,6 @@ async function detectMergedBranch(repoRoot: string, branch: string): Promise<Mer
   return { merged: false };
 }
 
-async function createMissingPrs(
-  stackBranches: string[],
-  missingPrs: string[],
-  parentByBranch: Record<string, string>,
-  repoRoot: string,
-  graph: Map<string, { worktreePath: string }>
-): Promise<void> {
-  const missingSet = new Set(missingPrs);
-  const fallbackBase = await git.defaultBranch(repoRoot);
-
-  for (const branch of stackBranches) {
-    if (!missingSet.has(branch)) {
-      continue;
-    }
-    const base = parentByBranch[branch] ?? fallbackBase;
-    const node = graph.get(branch);
-    if (!node) {
-      throw new GwError(`Cannot create PR: missing worktree for branch ${branch}`);
-    }
-    ui.printInfo(`Pushing ${ui.styleBranch(branch)} to origin`);
-    await git.pushBranch(node.worktreePath, "origin", branch);
-    ui.printInfo(`Creating PR for ${ui.styleBranch(branch)} -> ${ui.styleBranch(base)}`);
-    await gh.createPr(branch, base);
-    await updateStackDescriptionsSafe(stackBranches);
-  }
-}
-
-async function askYesNo(question: string, autoYes = false): Promise<boolean> {
-  if (autoYes) {
-    ui.printInfo(`${question}y (auto-confirmed)`);
-    return true;
-  }
-  const rl = createInterface({ input, output });
-  try {
-    const answer = (await rl.question(question)).trim().toLowerCase();
-    return answer === "y" || answer === "yes";
-  } finally {
-    rl.close();
-  }
-}
 
 async function ensureCleanOrStash(
   worktreePaths: string[],
@@ -515,7 +444,21 @@ async function runResume(repoRoot: string, commonDir: string, autoYes = false): 
     );
   }
 
-  const discovery = await discoverPlan();
+  // If the failed branch still has an active rebase, tell the user to finish first
+  if (existing.failedAt && existing.failedWorktreePath) {
+    const rebaseActive = await git.isRebaseInProgress(existing.failedWorktreePath);
+    if (rebaseActive) {
+      throw new GwError(
+        `A rebase is still in progress in ${existing.failedWorktreePath}.\n` +
+          `Finish resolving conflicts and run: git -C ${existing.failedWorktreePath} rebase --continue\n` +
+          `Or run: gw abort`
+      );
+    }
+  }
+
+  // Use a branch from state for discovery since cwd may be in detached HEAD during rebase
+  const resumeFromBranch = existing.failedAt ?? existing.stackBranches[0];
+  const discovery = await discoverPlan({ fromBranch: resumeFromBranch });
   const graph = discovery.graph;
   const stackBranchesForPrs = existing.stackBranches.filter(
     (branch) => !!discovery.parentByBranch[branch]
@@ -531,6 +474,7 @@ async function runResume(repoRoot: string, commonDir: string, autoYes = false): 
 
   const done = new Set(existing.completed);
   let state = { ...existing };
+  const isRestack = existing.command === "restack";
 
   for (const branch of existing.executionOrder) {
     if (done.has(branch)) {
@@ -542,23 +486,41 @@ async function runResume(repoRoot: string, commonDir: string, autoYes = false): 
       throw new GwError(`Cannot resume: branch not found in current graph: ${branch}`);
     }
 
+    // Check if a rebase is still in progress for this branch
+    const rebaseActive = await git.isRebaseInProgress(node.worktreePath);
+    if (rebaseActive) {
+      throw new GwError(
+        `A rebase is still in progress in ${node.worktreePath}.\n` +
+          `Finish resolving conflicts and run: git -C ${node.worktreePath} rebase --continue\n` +
+          `Or run: gw abort`
+      );
+    }
+
     try {
       ui.printStep(`Resuming ${branch} onto ${node.parent} (${node.worktreePath})`);
       await git.fetch(node.worktreePath, "origin");
-      await git.rebaseOnto(node.worktreePath, node.parent);
+      // If this was the failed branch and rebase is no longer active, user already completed it
+      if (branch === existing.failedAt) {
+        ui.printStep(`Rebase already completed for ${branch}, pushing...`);
+      } else {
+        await git.rebaseOnto(node.worktreePath, node.parent);
+      }
       await git.pushLease(node.worktreePath, "origin", branch);
-      await updateBranchStackDescriptionSafe(stackBranchesForPrs, branch);
+      if (!isRestack) {
+        await updateBranchStackDescriptionSafe(stackBranchesForPrs, branch);
+      }
 
       state = {
         ...state,
         completed: [...state.completed, branch],
         failedAt: undefined,
+        failedWorktreePath: undefined,
         lastError: undefined,
       };
       await stateStore.saveState(commonDir, state);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      state = { ...state, failedAt: branch, lastError: message };
+      state = { ...state, failedAt: branch, failedWorktreePath: node.worktreePath, lastError: message };
       await stateStore.saveState(commonDir, state);
       throw new ConflictError(branch, node.worktreePath, message);
     }
@@ -639,26 +601,6 @@ function recordsEqual(a: Record<string, string>, b: Record<string, string>): boo
   return true;
 }
 
-async function updateStackDescriptionsSafe(stackBranches: string[]): Promise<void> {
-  try {
-    await prStack.refreshStackDescriptions(stackBranches);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    ui.printStep(`Warning: failed to refresh stack descriptions: ${message}`);
-  }
-}
-
-async function updateBranchStackDescriptionSafe(
-  stackBranches: string[],
-  branch: string
-): Promise<void> {
-  try {
-    await prStack.refreshBranchStackDescription(stackBranches, branch);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    ui.printStep(`Warning: failed to refresh PR description for ${branch}: ${message}`);
-  }
-}
 
 async function restoreAutoStashAfterSuccess(
   autoStash: AutoStash | undefined,

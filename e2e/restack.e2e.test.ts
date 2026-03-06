@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   addWorktreeBranch,
   commitFile,
   git,
+  gitCommonDir,
+  readJson,
   runCmd,
   runGw,
   setupBaseRepo,
@@ -134,5 +137,129 @@ describe("gw e2e: restack", () => {
     expect(out.code).toBe(1);
     expect(out.stdout).toContain("Found uncommitted changes in:");
     expect(out.stderr).toContain("Restack stopped: dirty worktrees detected");
+  });
+
+  test("restack conflict saves checkpoint state", async () => {
+    const { sandboxDir, repoDir } = await setupBaseRepo("gw-e2e-restack-conflict");
+    const wtB = join(sandboxDir, "wt-b");
+    const wtC = join(sandboxDir, "wt-c");
+
+    await addWorktreeBranch({ repoDir, branch: "feature/b", from: "main", worktreePath: wtB });
+    await commitFile(wtB, "conflict.txt", "from-b\n", "b content");
+    await git(wtB, ["push", "-u", "origin", "feature/b"]);
+
+    await addWorktreeBranch({ repoDir, branch: "feature/c", from: "feature/b", worktreePath: wtC });
+    await commitFile(wtC, "conflict.txt", "from-c\n", "c conflict");
+    await git(wtC, ["push", "-u", "origin", "feature/c"]);
+
+    // Create a conflicting change on feature/b
+    await commitFile(wtB, "conflict.txt", "from-b-updated\n", "b update");
+    await git(wtB, ["push", "origin", "feature/b"]);
+
+    await git(repoDir, ["checkout", "main"]);
+    await writeMeta(repoDir, {
+      "feature/b": "main",
+      "feature/c": "feature/b",
+    });
+
+    const out = await runGw({
+      cwd: wtB,
+      args: ["restack", "--from", "feature/b"],
+      allowFailure: true,
+    });
+
+    expect(out.code).toBe(1);
+    expect(out.stderr).toContain("Rebase conflict on feature/c");
+
+    const commonDir = await gitCommonDir(repoDir);
+    const state = await readJson<{ failedAt?: string; command?: string }>(
+      join(commonDir, "gw-state.json")
+    );
+    expect(state.failedAt).toBe("feature/c");
+    expect(state.command).toBe("restack");
+  });
+
+  test("resume after restack conflict continues from checkpoint", async () => {
+    const { sandboxDir, repoDir } = await setupBaseRepo("gw-e2e-restack-resume");
+    const wtB = join(sandboxDir, "wt-b");
+    const wtC = join(sandboxDir, "wt-c");
+
+    await addWorktreeBranch({ repoDir, branch: "feature/b", from: "main", worktreePath: wtB });
+    await commitFile(wtB, "conflict.txt", "from-b\n", "b content");
+    await git(wtB, ["push", "-u", "origin", "feature/b"]);
+
+    await addWorktreeBranch({ repoDir, branch: "feature/c", from: "feature/b", worktreePath: wtC });
+    await commitFile(wtC, "conflict.txt", "from-c\n", "c conflict");
+    await git(wtC, ["push", "-u", "origin", "feature/c"]);
+
+    await commitFile(wtB, "conflict.txt", "from-b-updated\n", "b update");
+    await git(wtB, ["push", "origin", "feature/b"]);
+
+    await git(repoDir, ["checkout", "main"]);
+    await writeMeta(repoDir, {
+      "feature/b": "main",
+      "feature/c": "feature/b",
+    });
+
+    const first = await runGw({
+      cwd: wtB,
+      args: ["restack", "--from", "feature/b"],
+      allowFailure: true,
+    });
+    expect(first.code).toBe(1);
+
+    // Resolve conflict manually
+    await writeFile(join(wtC, "conflict.txt"), "resolved\n", "utf8");
+    await git(wtC, ["add", "conflict.txt"]);
+    await runCmd(["git", "-C", wtC, "-c", "core.editor=true", "rebase", "--continue"]);
+
+    const second = await runGw({
+      cwd: wtB,
+      args: ["resume"],
+    });
+    expect(second.code).toBe(0);
+    expect(second.stdout).toContain("Resume complete.");
+
+    const commonDir = await gitCommonDir(repoDir);
+    expect(existsSync(join(commonDir, "gw-state.json"))).toBe(false);
+  });
+
+  test("abort after restack conflict clears state", async () => {
+    const { sandboxDir, repoDir } = await setupBaseRepo("gw-e2e-restack-abort");
+    const wtB = join(sandboxDir, "wt-b");
+    const wtC = join(sandboxDir, "wt-c");
+
+    await addWorktreeBranch({ repoDir, branch: "feature/b", from: "main", worktreePath: wtB });
+    await commitFile(wtB, "conflict.txt", "from-b\n", "b content");
+    await git(wtB, ["push", "-u", "origin", "feature/b"]);
+
+    await addWorktreeBranch({ repoDir, branch: "feature/c", from: "feature/b", worktreePath: wtC });
+    await commitFile(wtC, "conflict.txt", "from-c\n", "c conflict");
+    await git(wtC, ["push", "-u", "origin", "feature/c"]);
+
+    await commitFile(wtB, "conflict.txt", "from-b-updated\n", "b update");
+    await git(wtB, ["push", "origin", "feature/b"]);
+
+    await git(repoDir, ["checkout", "main"]);
+    await writeMeta(repoDir, {
+      "feature/b": "main",
+      "feature/c": "feature/b",
+    });
+
+    await runGw({
+      cwd: wtB,
+      args: ["restack", "--from", "feature/b"],
+      allowFailure: true,
+    });
+
+    const abort = await runGw({
+      cwd: wtB,
+      args: ["abort"],
+    });
+    expect(abort.code).toBe(0);
+    expect(abort.stdout).toContain("Sync aborted.");
+
+    const commonDir = await gitCommonDir(repoDir);
+    expect(existsSync(join(commonDir, "gw-state.json"))).toBe(false);
   });
 });

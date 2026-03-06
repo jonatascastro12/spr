@@ -20,11 +20,13 @@ export class DirtyWorktreeError extends GwError {
 }
 
 export class ConflictError extends GwError {
+  branch: string;
+  worktreePath: string;
   constructor(branch: string, worktreePath: string, cause: string) {
-    super(
-      `Rebase conflict on ${branch} in ${worktreePath}. Resolve conflicts, then run: git -C ${worktreePath} rebase --continue`
-    );
+    super(`Rebase conflict on ${branch} in ${worktreePath}.`);
     this.name = "ConflictError";
+    this.branch = branch;
+    this.worktreePath = worktreePath;
     this.cause = cause;
   }
 }

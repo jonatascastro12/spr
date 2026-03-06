@@ -29,16 +29,22 @@ export async function clearState(commonGitDir: string): Promise<void> {
   }
 }
 
-export function makeInitialState(repoRoot: string, plan: SyncPlan, dryRun: boolean): SyncState {
+export function makeInitialState(
+  repoRoot: string,
+  plan: SyncPlan,
+  dryRun: boolean,
+  opts?: { command?: "sync" | "restack"; snapshotTimestamp?: string }
+): SyncState {
   return {
     version: 1,
     repoRoot,
     startedAt: new Date().toISOString(),
-    command: "sync",
+    command: opts?.command ?? "sync",
     rootBranch: plan.root,
     stackBranches: plan.allBranches,
     executionOrder: plan.rebaseOrder,
     completed: [],
     dryRun,
+    snapshotTimestamp: opts?.snapshotTimestamp,
   };
 }

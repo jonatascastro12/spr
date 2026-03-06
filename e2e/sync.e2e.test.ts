@@ -395,6 +395,107 @@ describe("gw e2e: status/sync/resume", () => {
     expect(baseUpdates.length).toBeGreaterThanOrEqual(1);
   });
 
+  test("sync creates backup refs before rebasing", async () => {
+    const stack = await setupOneBranchStack();
+    const fakeGh = await setupFakeGh({
+      sandboxDir: stack.sandboxDir,
+      fixture: fixtureWithOpenPrs([{ branch: "feature/a", base: "main", number: 250 }]),
+    });
+
+    const out = await runGw({
+      cwd: stack.wtA,
+      args: ["sync", "--from", "feature/a"],
+      env: fakeGh.env,
+    });
+    expect(out.code).toBe(0);
+
+    // Check backup refs exist
+    const refs = await git(stack.repoDir, ["for-each-ref", "--format=%(refname)", "refs/gw-backup/"]);
+    expect(refs).toContain("refs/gw-backup/");
+    expect(refs).toContain("feature/a");
+  });
+
+  test("conflict error shows structured multi-line guide", async () => {
+    const stack = await setupBaseRepo();
+    const wtA = join(stack.sandboxDir, "wt-a");
+    await commitFile(stack.repoDir, "conflict.txt", "base\n", "add conflict base");
+    await git(stack.repoDir, ["push", "origin", "main"]);
+
+    await addWorktreeBranch({
+      repoDir: stack.repoDir,
+      branch: "feature/a",
+      from: "main",
+      worktreePath: wtA,
+    });
+    await commitFile(wtA, "conflict.txt", "feature\n", "feature change");
+    await git(wtA, ["push", "-u", "origin", "feature/a"]);
+    await git(stack.repoDir, ["checkout", "main"]);
+    await commitFile(stack.repoDir, "conflict.txt", "main\n", "main change");
+    await git(stack.repoDir, ["push", "origin", "main"]);
+    await writeMeta(stack.repoDir, { "feature/a": "main" });
+
+    const fakeGh = await setupFakeGh({
+      sandboxDir: stack.sandboxDir,
+      fixture: fixtureWithOpenPrs([{ branch: "feature/a", base: "main", number: 260 }]),
+    });
+    const out = await runGw({
+      cwd: wtA,
+      args: ["sync", "--from", "feature/a"],
+      env: fakeGh.env,
+      allowFailure: true,
+    });
+
+    expect(out.code).toBe(1);
+    expect(out.stderr).toContain("Rebase conflict on feature/a");
+    expect(out.stderr).toContain("To resolve manually:");
+    expect(out.stderr).toContain("gw resolve");
+    expect(out.stderr).toContain("gw abort");
+  });
+
+  test("resume detects mid-rebase and tells user to finish", async () => {
+    const stack = await setupBaseRepo();
+    const wtA = join(stack.sandboxDir, "wt-a");
+    await commitFile(stack.repoDir, "conflict.txt", "base\n", "add conflict base");
+    await git(stack.repoDir, ["push", "origin", "main"]);
+
+    await addWorktreeBranch({
+      repoDir: stack.repoDir,
+      branch: "feature/a",
+      from: "main",
+      worktreePath: wtA,
+    });
+    await commitFile(wtA, "conflict.txt", "feature\n", "feature change");
+    await git(wtA, ["push", "-u", "origin", "feature/a"]);
+    await git(stack.repoDir, ["checkout", "main"]);
+    await commitFile(stack.repoDir, "conflict.txt", "main\n", "main change");
+    await git(stack.repoDir, ["push", "origin", "main"]);
+    await writeMeta(stack.repoDir, { "feature/a": "main" });
+
+    const fakeGh = await setupFakeGh({
+      sandboxDir: stack.sandboxDir,
+      fixture: fixtureWithOpenPrs([{ branch: "feature/a", base: "main", number: 270 }]),
+    });
+
+    // Trigger conflict
+    const first = await runGw({
+      cwd: wtA,
+      args: ["sync", "--from", "feature/a"],
+      env: fakeGh.env,
+      allowFailure: true,
+    });
+    expect(first.code).toBe(1);
+
+    // Do NOT resolve — try to resume immediately
+    const second = await runGw({
+      cwd: wtA,
+      args: ["resume"],
+      env: fakeGh.env,
+      allowFailure: true,
+    });
+    expect(second.code).toBe(1);
+    expect(second.stderr).toContain("rebase is still in progress");
+  });
+
   test("sync fast-forwards root main before rebase execution", async () => {
     const stack = await setupOneBranchStack();
     const mirrorDir = join(stack.sandboxDir, "mirror");

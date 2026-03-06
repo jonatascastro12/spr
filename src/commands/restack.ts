@@ -1,7 +1,8 @@
-import { createInterface } from "node:readline/promises";
-import { stdin as input, stdout as output } from "node:process";
 import * as git from "../lib/git";
 import { discoverPlan } from "../lib/plan";
+import { askYesNo } from "../lib/pr-ops";
+import * as stateStore from "../lib/state";
+import { collectDescendants } from "../lib/stack";
 import * as ui from "../lib/ui";
 import { ConflictError, GwError } from "../lib/errors";
 
@@ -44,6 +45,29 @@ export async function runRestack(opts: RestackOptions): Promise<void> {
   const involvedBranches = [fromBranch, ...executionOrder];
   const autoStash = await ensureCleanOrStash(worktreePathsForBranches(graph, involvedBranches), opts.yes);
 
+  const repoRoot = await git.repoRoot();
+  const commonDir = await git.gitCommonDir(repoRoot);
+
+  // Create backup refs
+  const snapshotTimestamp = Date.now().toString();
+  const worktrees = await git.listWorktrees(repoRoot);
+  const wtByBranch = new Map(worktrees.map((wt) => [wt.branch, wt]));
+  for (const branch of involvedBranches) {
+    const wt = wtByBranch.get(branch);
+    if (wt) {
+      await git.createBackupRef(repoRoot, branch, wt.headSha, snapshotTimestamp);
+    }
+  }
+
+  // Save initial state
+  let state = stateStore.makeInitialState(
+    repoRoot,
+    { root: plan.root, allBranches: involvedBranches, rebaseOrder: executionOrder },
+    false,
+    { command: "restack", snapshotTimestamp }
+  );
+  await stateStore.saveState(commonDir, state);
+
   ui.printInfo(ui.styleBold("Restacking descendant branches..."));
   for (const branch of executionOrder) {
     const node = graph.get(branch);
@@ -56,56 +80,26 @@ export async function runRestack(opts: RestackOptions): Promise<void> {
       await git.fetch(node.worktreePath, "origin");
       await git.rebaseOnto(node.worktreePath, node.parent);
       await git.pushLease(node.worktreePath, "origin", branch);
+
+      state = {
+        ...state,
+        completed: [...state.completed, branch],
+        failedAt: undefined,
+        failedWorktreePath: undefined,
+        lastError: undefined,
+      };
+      await stateStore.saveState(commonDir, state);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      state = { ...state, failedAt: branch, failedWorktreePath: node.worktreePath, lastError: message };
+      await stateStore.saveState(commonDir, state);
       throw new ConflictError(branch, node.worktreePath, message);
     }
   }
 
+  await stateStore.clearState(commonDir);
   await restoreAutoStashAfterSuccess(autoStash);
   ui.printStep("Restack complete.");
-}
-
-function collectDescendants(
-  graph: Map<string, { children: string[] }>,
-  fromBranch: string
-): Set<string> {
-  const descendants = new Set<string>();
-  const queue = [...(graph.get(fromBranch)?.children ?? [])].sort();
-
-  while (queue.length > 0) {
-    const branch = queue.shift()!;
-    if (descendants.has(branch)) {
-      continue;
-    }
-    descendants.add(branch);
-    const node = graph.get(branch);
-    if (!node) {
-      continue;
-    }
-    for (const child of node.children) {
-      if (!descendants.has(child)) {
-        queue.push(child);
-      }
-    }
-    queue.sort();
-  }
-
-  return descendants;
-}
-
-async function askYesNo(question: string, autoYes = false): Promise<boolean> {
-  if (autoYes) {
-    ui.printInfo(`${question}y (auto-confirmed)`);
-    return true;
-  }
-  const rl = createInterface({ input, output });
-  try {
-    const answer = (await rl.question(question)).trim().toLowerCase();
-    return answer === "y" || answer === "yes";
-  } finally {
-    rl.close();
-  }
 }
 
 async function ensureCleanOrStash(worktreePaths: string[], autoYes = false): Promise<AutoStash | undefined> {
